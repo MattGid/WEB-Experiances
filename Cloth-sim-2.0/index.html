@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Cloth Simulation</title>
+    <style>
+        :root {
+            --ui-scale: 1.0;
+        }
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000000;
+            color: #FFFFFF;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: calc(14px * var(--ui-scale));
+        }
+        #container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        canvas {
+            display: block;
+        }
+        .controls-panel {
+            position: absolute;
+            background-color: rgba(28, 28, 28, 0.85);
+            backdrop-filter: blur(5px);
+            padding: calc(10px * var(--ui-scale));
+            border-radius: 10px;
+            color: #DDDDDD;
+            scrollbar-width: thin;
+            scrollbar-color: #555 #333;
+            box-sizing: border-box;
+        }
+        #top-bar {
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            padding: calc(8px * var(--ui-scale));
+            z-index: 100;
+            align-items: center;
+        }
+        #controls-right {
+            top: 20px; 
+            right: 20px;
+            width: calc(280px * var(--ui-scale));
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+        }
+        .control-section {
+            margin-bottom: calc(15px * var(--ui-scale));
+            border-bottom: 1px solid #444;
+            padding-bottom: calc(10px * var(--ui-scale));
+        }
+        .control-section:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+            margin-bottom: 0;
+        }
+        
+        .control-section h3 {
+            margin-top: 0;
+            margin-bottom: calc(10px * var(--ui-scale));
+            cursor: pointer;
+            user-select: none;
+            font-size: 1em;
+        }
+        .control-section h3::after {
+            content: ' ▼';
+            font-size: 0.8em;
+            float: right;
+        }
+        .control-section.collapsed .collapsible {
+            display: none;
+        }
+        .control-section.collapsed h3::after {
+            content: ' ►';
+        }
+        .control {
+            margin-bottom: calc(10px * var(--ui-scale));
+        }
+        .control label {
+            display: block;
+            margin-bottom: calc(3px * var(--ui-scale));
+            font-size: 0.9em;
+        }
+        .control input[type="range"] {
+            width: 100%;
+        }
+        .control input[type="color"] {
+            width: 100%;
+            height: calc(30px * var(--ui-scale));
+            padding: 0;
+            border: 1px solid #555;
+            background: #333;
+        }
+        .control-button {
+            background-color: #333;
+            color: #ddd;
+            border: 1px solid #555;
+            padding: calc(6px * var(--ui-scale)) calc(10px * var(--ui-scale));
+            width: 100%;
+            text-align: left;
+            cursor: pointer;
+            margin-top: calc(5px * var(--ui-scale));
+            border-radius: 5px;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .control-button:hover {
+            background-color: #444;
+        }
+        .control-button.strength-btn {
+            flex-grow: 1;
+            text-align: center;
+        }
+        .control-button.strength-btn.active {
+            background-color: #5e5e5e;
+            border-color: #888;
+        }
+        .recording-indicator {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            display: none;
+            background-color: rgba(255, 0, 0, 0.7);
+            padding: calc(5px * var(--ui-scale)) calc(10px * var(--ui-scale));
+            border-radius: 5px;
+        }
+        .mode-button {
+            background-color: rgba(34, 34, 34, 0.8);
+            color: #ddd;
+            border: 1px solid #555;
+            padding: calc(8px * var(--ui-scale)) calc(12px * var(--ui-scale));
+            cursor: pointer;
+            border-radius: 5px;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .mode-button.active {
+            background-color: #5e5e5e;
+            color: white;
+            border-color: #888;
+        }
+        #top-bar .control-button {
+            width: auto;
+            margin-top: 0;
+        }
+        #persistent-ui-toggle {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 101; /* Higher than other panels */
+            width: auto;
+            padding: 10px 15px;
+            margin-top: 0;
+        }
+        #recording-frame {
+            position: absolute;
+            border: 2px dashed rgba(255, 255, 255, 0.5);
+            box-sizing: border-box;
+            pointer-events: none;
+            z-index: 99;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="container"></div>
+    <div id="recording-frame"></div>
+    <div class="recording-indicator" id="recordingIndicator">Recording...</div>
+    <input type="file" id="textureUpload" accept="image/*" style="display: none;">
+    <button id="persistent-ui-toggle" class="control-button">Toggle UI</button>
+
+    <div id="top-bar" class="controls-panel">
+        <button class="mode-button active" data-mode="CAMERA">Camera</button>
+        <button class="mode-button" data-mode="GRAB">Grab</button>
+        <button class="mode-button" data-mode="REPEL">Repel</button>
+        <button class="mode-button" data-mode="ATTRACT">Attract</button>
+        <button class="control-button" id="toggleTurntable">Turntable</button>
+        <button class="control-button" id="resetCamera">Reset View</button>
+        <button class="control-button" id="savePNGBtn">Save PNG</button>
+        <button class="control-button" id="recordGIFBtn">Record GIF</button>
+    </div>
+    
+    <div id="controls-right" class="controls-panel">
+        <div class="control-section" id="interaction-section">
+            <h3>Interaction</h3>
+            <div class="collapsible">
+                 <div class="control">
+                    <label for="interactionRadius">Interaction Radius</label>
+                    <input type="range" id="interactionRadius" min="0" max="20" step="0.5" value="5">
+                </div>
+                 <div class="control">
+                    <label>Interaction Strength</label>
+                    <div style="display: flex; gap: 5px; justify-content: space-between;">
+                        <button class="control-button strength-btn active" data-strength="1350">Low</button>
+                        <button class="control-button strength-btn" data-strength="4050">Med</button>
+                        <button class="control-button strength-btn" data-strength="8100">High</button>
+                        <button class="control-button strength-btn" data-strength="13500">Max</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="control-section" id="simulation-section">
+            <h3>Simulation</h3>
+            <div class="collapsible">
+                <div class="control">
+                    <label for="gravity">Gravity</label>
+                    <input type="range" id="gravity" min="-20" max="20" step="0.1" value="0">
+                </div>
+                <div class="control">
+                    <label for="stiffness">Stiffness</label>
+                    <input type="range" id="stiffness" min="0.1" max="2" step="0.01" value="0.5">
+                </div>
+                <div class="control">
+                    <label for="damping">Damping</label>
+                    <input type="range" id="damping" min="0.95" max="0.999" step="0.001" value="0.995">
+                </div>
+                <div class="control">
+                    <label for="polyCount">Poly Count</label>
+                    <input type="range" id="polyCount" min="10" max="40" step="1" value="15">
+                </div>
+                <div class="control">
+                    <label for="solverIterations">Solver Iterations</label>
+                    <input type="range" id="solverIterations" min="1" max="10" step="1" value="3">
+                </div>
+                 <div class="control">
+                    <label for="clothThickness">Cloth Thickness</label>
+                    <input type="range" id="clothThickness" min="0.5" max="5" step="0.1" value="2">
+                </div>
+                <button class="control-button" id="toggleCollision">Self-Collision: Off</button>
+                <button class="control-button" id="resetSimulation">Reset Simulation</button>
+            </div>
+        </div>
+        <div class="control-section" id="forces-section">
+            <h3>Forces</h3>
+            <div class="collapsible">
+                <button class="control-button" id="toggleWind">Wind: Off</button>
+                <div class="control" id="wind-strength-control" style="display: none;">
+                    <label for="windStrength">Wind Strength</label>
+                    <input type="range" id="windStrength" min="0" max="100" step="1" value="20">
+                </div>
+                <div class="control" id="wind-turbulence-control" style="display: none;">
+                    <label for="windTurbulence">Wind Turbulence</label>
+                    <input type="range" id="windTurbulence" min="0" max="50" step="1" value="0">
+                </div>
+                <div class="control">
+                    <label for="twist">Twist</label>
+                    <input type="range" id="twist" min="-10" max="10" step="0.1" value="0">
+                </div>
+                <div class="control">
+                    <label for="noiseStrength">Noise</label>
+                    <input type="range" id="noiseStrength" min="0" max="10" step="0.1" value="0">
+                </div>
+                <button class="control-button" id="shockwaveBtn">Shockwave</button>
+                <button class="control-button" id="explodeBtn">Explode</button>
+            </div>
+        </div>
+        <div class="control-section" id="rendering-section">
+            <h3>Rendering</h3>
+            <div class="collapsible">
+                <button class="control-button" id="shadedRendering">Shaded</button>
+                <button class="control-button" id="wireframeTriRendering">Wireframe (Triangles)</button>
+                <button class="control-button" id="wireframeQuadRendering">Wireframe (Quads)</button>
+                <button class="control-button" id="pointRendering">Point Cloud</button>
+            </div>
+        </div>
+        <div class="control-section" id="texture-section">
+            <h3>Texture</h3>
+            <div class="collapsible">
+                <button class="control-button" id="defaultTextureBtn">Default</button>
+                <button class="control-button" id="gridTextureBtn">Grid</button>
+                <button class="control-button" id="circlesTextureBtn">Circles</button>
+                <button class="control-button" id="uploadTextureBtn">Upload Texture</button>
+            </div>
+        </div>
+        <div class="control-section" id="background-section">
+            <h3>Background</h3>
+            <div class="collapsible">
+                <div class="control">
+                    <label for="bgColor1">Gradient Color 1</label>
+                    <input type="color" id="bgColor1" value="#1a1a1a">
+                </div>
+                <div class="control">
+                    <label for="bgColor2">Gradient Color 2</label>
+                    <input type="color" id="bgColor2" value="#000000">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/helpers/VertexNormalsHelper.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/BokehPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/BokehShader.js"></script>
+
+    <script>
+        // --- Cloth Physics ---
+        function Particle(x, y, z, mass) {
+            this.position = new THREE.Vector3(x, y, z);
+            this.previous = new THREE.Vector3(x, y, z);
+            this.original = new THREE.Vector3(x, y, z);
+            this.a = new THREE.Vector3(0, 0, 0);
+            this.mass = mass;
+            this.invMass = mass === 0 ? 0 : 1 / mass;
+            this.tmp = new THREE.Vector3();
+            this.tmp2 = new THREE.Vector3();
+        }
+
+        Particle.prototype.addForce = function (force) {
+            this.a.add(this.tmp2.copy(force).multiplyScalar(this.invMass));
+        };
+        
+        Particle.prototype.integrate = function (timesq) {
+            const newPos = this.tmp.subVectors(this.position, this.previous);
+            newPos.multiplyScalar(damping).add(this.position);
+            newPos.add(this.a.multiplyScalar(timesq));
+            
+            this.previous.copy(this.position);
+            this.position.copy(newPos);
+
+            this.a.set(0, 0, 0);
+        };
+
+        // --- Basic setup ---
+        let scene, camera, renderer, controls;
+        let clothSolid, clothGeometry, clothWireframe, clothPoints, clothPickerMesh;
+        let ambientLight, directionalLight, pointLight;
+        let composer;
+        const container = document.getElementById('container');
+
+        // --- Simulation parameters ---
+        let clothWidth = 25;
+        let clothHeight = 15;
+        const restDistance = 2;
+        let gravity = new THREE.Vector3(0, 0, 0);
+        let stiffness = 0.5;
+        let damping = 0.995;
+        let diagonals = true;
+        let solverIterations = 3;
+        let collisionThickness = 2;
+        let selfCollision = false;
+        let simulationRunning = true;
+        let animationFrameId;
+
+        
+        // --- Forces ---
+        let wind = false;
+        let windStrength = 20;
+        let windTurbulence = 0;
+        let twistStrength = 0;
+        let noiseStrength = 0;
+        let shockwaveActive = false;
+        let shockwaveStartTime = 0;
+        const shockwaveDuration = 1.0;
+        const shockwaveStrength = 200;
+
+        const FIXED_TIMESTEP = 1 / 60;
+        const TIMESTEP_SQ = FIXED_TIMESTEP * FIXED_TIMESTEP;
+        let accumulator = 0;
+        let lastTime = performance.now();
+
+        let particles = [];
+        let constraints = [];
+        
+        // --- Interaction ---
+        let interactionMode = 'CAMERA'; // CAMERA, GRAB, REPEL, ATTRACT
+        const mouse = new THREE.Vector2();
+        const raycaster = new THREE.Raycaster();
+        let mouse3D = new THREE.Vector3();
+        let interactionRadius = 5;
+        let interactionStrength = 1350;
+        let cursorSphere;
+        let grabConstraint = null;
+
+        // --- GIF Recording ---
+        let gif;
+        let isRecording = false;
+        let gifWorkerURL = null;
+        
+        // --- Dynamic Texture ---
+        let textureCanvas, textureContext, clothTexture;
+        let activeTextureGenerator = generateTexture;
+
+
+        // Pre-fetch the worker script to avoid cross-origin issues
+        fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js')
+            .then(response => response.text())
+            .then(text => {
+                const blob = new Blob([text], { type: 'application/javascript' });
+                gifWorkerURL = URL.createObjectURL(blob);
+            })
+            .catch(e => {
+                console.error("Failed to load GIF worker script:", e);
+                const recordButton = document.getElementById('recordGIFBtn');
+                if (recordButton) {
+                    recordButton.textContent = "GIF Recording Disabled";
+                    recordButton.disabled = true;
+                }
+            });
+
+        init();
+        animate();
+
+        function init() {
+            // --- Scene ---
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000); // Will be overridden by CSS gradient, but good fallback
+            scene.fog = new THREE.Fog(0x000000, 50, 200);
+
+            // --- Camera ---
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 5, 50);
+
+            // --- Renderer ---
+            renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // --- Lights ---
+            ambientLight = new THREE.AmbientLight(0x404040, 2);
+            scene.add(ambientLight);
+
+            directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            directionalLight.position.set(5, 10, 7.5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.left = -50;
+            directionalLight.shadow.camera.right = 50;
+            directionalLight.shadow.camera.top = 50;
+            directionalLight.shadow.camera.bottom = -50;
+            scene.add(directionalLight);
+           
+            // --- Controls ---
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enablePan = true;
+            controls.enableZoom = true;
+            
+            // --- Cloth ---
+            textureCanvas = document.createElement('canvas');
+            textureCanvas.width = 512;
+            textureCanvas.height = 512;
+            textureContext = textureCanvas.getContext('2d');
+            
+            clothTexture = new THREE.CanvasTexture(textureCanvas);
+            clothTexture.wrapS = THREE.RepeatWrapping;
+            clothTexture.wrapT = THREE.RepeatWrapping;
+            clothTexture.anisotropy = 16;
+            
+            const clothMaterial = new THREE.MeshPhongMaterial({
+                color: 0xaaaaaa,
+                specular: 0x030303,
+                shininess: 30,
+                wireframe: false,
+                map: clothTexture,
+                side: THREE.DoubleSide
+            });
+
+            clothGeometry = new THREE.ParametricBufferGeometry(clothFunction, clothWidth, clothHeight);
+            clothSolid = new THREE.Mesh(clothGeometry, clothMaterial);
+            clothSolid.castShadow = true;
+            scene.add(clothSolid);
+
+            // Create an invisible mesh for raycasting
+            const pickerMaterial = new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide });
+            clothPickerMesh = new THREE.Mesh(clothGeometry, pickerMaterial);
+            scene.add(clothPickerMesh);
+            
+            // Cursor Sphere
+            const sphereGeometry = new THREE.SphereGeometry(1, 16, 16);
+            const sphereMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.2 });
+            cursorSphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+            cursorSphere.visible = false;
+            scene.add(cursorSphere);
+
+            pointLight = new THREE.PointLight(0x00ff00, 0, 100, 2); // Color, Intensity, Distance, Decay
+            cursorSphere.add(pointLight);
+
+            // Create other rendering modes
+            createParticlesAndConstraints();
+            createAdditionalRenders();
+
+            // --- Event Listeners ---
+            window.addEventListener('resize', onWindowResize, false);
+            document.addEventListener('mousemove', onMouseMove, false);
+            document.addEventListener('mousedown', onMouseDown, false);
+            document.addEventListener('mouseup', onMouseUp, false);
+            setupUI();
+            updateBackground(); // Initial background set
+            updateCanvasSize(); // Initial canvas size
+            updateFrameSize(); // Initial frame size
+        }
+
+        function satisfyConstraints(p1, p2, distance, currentStiffness) {
+            const dragStiffness = currentStiffness || stiffness;
+            const diff = new THREE.Vector3().subVectors(p2.position, p1.position);
+            const currentDist = diff.length();
+            if (currentDist === 0) return; // prevents division by zero
+            const correction = diff.multiplyScalar((currentDist - distance) / currentDist).multiplyScalar(dragStiffness);
+
+            if (p1.mass !== 0 && p2.mass !== 0) {
+                const correctionHalf = correction.multiplyScalar(0.5);
+                p1.position.add(correctionHalf);
+                p2.position.sub(correctionHalf);
+            } else if (p1.mass !== 0 && p2.mass === 0) {
+                p1.position.add(correction);
+            } else if (p1.mass === 0 && p2.mass !== 0) {
+                p2.position.sub(correction);
+            }
+        }
+
+        function createParticlesAndConstraints() {
+            particles = [];
+            constraints = [];
+
+            for (let v = 0; v <= clothHeight; v++) {
+                for (let u = 0; u <= clothWidth; u++) {
+                    const pos = clothFunction(u / clothWidth, v / clothHeight, new THREE.Vector3());
+                    let mass = 1;
+                    if ((u === 0 && v === 0) || 
+                        (u === clothWidth && v === 0) || 
+                        (u === 0 && v === clothHeight) || 
+                        (u === clothWidth && v === clothHeight)) {
+                        mass = 0; // Pin the four corners
+                    }
+                    particles.push(new Particle(pos.x, pos.y, pos.z, mass));
+                }
+            }
+
+            for (let v = 0; v < clothHeight; v++) {
+                for (let u = 0; u < clothWidth; u++) {
+                    constraints.push({p1: particles[index(u, v)], p2: particles[index(u, v + 1)], distance: restDistance});
+                    constraints.push({p1: particles[index(u, v)], p2: particles[index(u + 1, v)], distance: restDistance});
+                }
+            }
+            for (let u = clothWidth, v = 0; v < clothHeight; v++) {
+                constraints.push({p1: particles[index(u, v)], p2: particles[index(u, v + 1)], distance: restDistance});
+            }
+            for (let v = clothHeight, u = 0; u < clothWidth; u++) {
+                constraints.push({p1: particles[index(u, v)], p2: particles[index(u + 1, v)], distance: restDistance});
+            }
+
+            if (diagonals) {
+                 for (let v = 0; v < clothHeight; v++) {
+                    for (let u = 0; u < clothWidth; u++) {
+                        constraints.push({p1: particles[index(u, v)], p2: particles[index(u + 1, v + 1)], distance: restDistance * Math.SQRT2});
+                        constraints.push({p1: particles[index(u + 1, v)], p2: particles[index(u, v + 1)], distance: restDistance * Math.SQRT2});
+                    }
+                }
+            }
+        }
+        
+        function simulate() {
+            // Apply forces
+            const windForce = new THREE.Vector3(0, 0, -windStrength);
+            for (const particle of particles) {
+                if (particle.mass !== 0) {
+                    particle.addForce(gravity);
+                    if (wind) {
+                        const turbulence = new THREE.Vector3(
+                            (Math.random() - 0.5) * windTurbulence,
+                            (Math.random() - 0.5) * windTurbulence,
+                            (Math.random() - 0.5) * windTurbulence
+                        );
+                        particle.addForce(windForce.clone().add(turbulence));
+                    }
+                    if (twistStrength !== 0) {
+                        const toCenter = new THREE.Vector3(0, particle.position.y, particle.position.z).sub(particle.position);
+                        const twistForce = toCenter.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+                        twistForce.multiplyScalar(twistStrength);
+                        particle.addForce(twistForce);
+                    }
+                    if (noiseStrength > 0) {
+                        const noise = new THREE.Vector3(
+                            (Math.random() - 0.5) * noiseStrength,
+                            (Math.random() - 0.5) * noiseStrength,
+                            (Math.random() - 0.5) * noiseStrength
+                        );
+                        particle.addForce(noise);
+                    }
+                }
+            }
+
+             if (shockwaveActive) {
+                const elapsed = (performance.now() / 1000) - shockwaveStartTime;
+                if (elapsed > shockwaveDuration) {
+                    shockwaveActive = false;
+                } else {
+                    const timeFalloff = 1.0 - (elapsed / shockwaveDuration);
+                    for (const particle of particles) {
+                        const direction = particle.position.clone().normalize();
+                        const force = direction.multiplyScalar(shockwaveStrength * timeFalloff);
+                        particle.addForce(force);
+                    }
+                }
+            }
+            
+            // Mouse Interaction
+            if (interactionMode === 'REPEL' || interactionMode === 'ATTRACT') {
+                for (const particle of particles) {
+                    const diff = new THREE.Vector3().subVectors(particle.position, mouse3D);
+                    const dist = diff.length();
+                    if (dist < interactionRadius) {
+                        const forceMagnitude = interactionStrength * (1 - dist / interactionRadius);
+                        diff.normalize();
+                        const force = diff.multiplyScalar(forceMagnitude * (interactionMode === 'REPEL' ? 1 : -1));
+                        particle.addForce(force);
+                    }
+                }
+            }
+
+
+            // Integrate forces
+            const maxVelocitySq = (200 * FIXED_TIMESTEP) * (200 * FIXED_TIMESTEP);
+            for (const p of particles) {
+                if(p.mass !== 0) {
+                    p.integrate(TIMESTEP_SQ);
+                    
+                    // Velocity clamping
+                    const velocity = new THREE.Vector3().subVectors(p.position, p.previous);
+                    if (velocity.lengthSq() > maxVelocitySq) {
+                        velocity.normalize().multiplyScalar(Math.sqrt(maxVelocitySq));
+                        p.previous.copy(p.position).sub(velocity);
+                    }
+                }
+            }
+            
+            // Self-Collision
+            if (selfCollision) {
+                for (let i = 0, il = particles.length; i < il; i++) {
+                    const particle1 = particles[i];
+                    for (let j = i + 1; j < il; j++) {
+                        const particle2 = particles[j];
+                        const diff = new THREE.Vector3().subVectors(particle2.position, particle1.position);
+                        const d = diff.length();
+                        if (d < collisionThickness) {
+                             const correction = diff.normalize().multiplyScalar((d - collisionThickness) / 2);
+                             if(particle1.mass !== 0) particle1.position.add(correction);
+                             if(particle2.mass !== 0) particle2.position.sub(correction);
+                        }
+                    }
+                }
+            }
+
+            // Satisfy constraints
+            for (let i = 0; i < solverIterations; i++) {
+                // Cloth constraints
+                for (const c of constraints) {
+                    satisfyConstraints(c.p1, c.p2, c.distance);
+                }
+                 // Grab constraint
+                if (grabConstraint) {
+                    satisfyConstraints(grabConstraint.p1, grabConstraint.p2, grabConstraint.distance, 1.0);
+                }
+            }
+        }
+
+        // --- Interaction Handlers ---
+        
+        function onMouseMove(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            
+            const dragPlane = new THREE.Plane(camera.getWorldDirection(new THREE.Vector3()), 0);
+            raycaster.setFromCamera(mouse, camera);
+            raycaster.ray.intersectPlane(dragPlane, mouse3D);
+            
+            if (grabConstraint) {
+                grabConstraint.p2.position.copy(mouse3D);
+            }
+        }
+
+        function onMouseDown(event) {
+            if (interactionMode !== 'GRAB' || event.button !== 0) return;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(clothPickerMesh);
+
+            if (intersects.length > 0) {
+                const intersect = intersects[0];
+                let closestParticle = null;
+                let minDistanceSq = Infinity;
+
+                for (const particle of particles) {
+                    const distanceSq = particle.position.distanceToSquared(intersect.point);
+                    if (distanceSq < minDistanceSq) {
+                        minDistanceSq = distanceSq;
+                        closestParticle = particle;
+                    }
+                }
+                
+                if (closestParticle && closestParticle.mass !== 0) {
+                    const turntableBtn = document.getElementById('toggleTurntable');
+                    controls.autoRotate = false;
+                    turntableBtn.textContent = '360 Turntable: Off';
+                    
+                    const proxy = new Particle(intersect.point.x, intersect.point.y, intersect.point.z, 0);
+                    grabConstraint = {
+                        p1: closestParticle,
+                        p2: proxy,
+                        distance: 0,
+                    };
+                }
+            }
+        }
+
+        function onMouseUp(event) {
+            if (interactionMode === 'GRAB') {
+                 grabConstraint = null;
+            }
+        }
+
+        // --- UI Setup ---
+        
+        function setupUI() {
+            document.getElementById('persistent-ui-toggle').addEventListener('click', () => {
+                const controlsPanel = document.getElementById('controls-right');
+                const topBar = document.getElementById('top-bar');
+                const isVisible = controlsPanel.style.display !== 'none';
+                controlsPanel.style.display = isVisible ? 'none' : 'block';
+                topBar.style.display = isVisible ? 'none' : 'flex';
+                setTimeout(updateCanvasSize, 50); // Allow DOM to update
+            });
+
+            // Simulation Parameters
+            document.getElementById('gravity').addEventListener('input', e => gravity.y = parseFloat(e.target.value));
+            document.getElementById('stiffness').addEventListener('input', e => stiffness = parseFloat(e.target.value));
+            document.getElementById('damping').addEventListener('input', e => damping = parseFloat(e.target.value));
+            document.getElementById('polyCount').addEventListener('input', e => resetCloth(parseInt(e.target.value, 10)));
+            document.getElementById('resetSimulation').addEventListener('click', () => {
+                const currentPolyCount = parseInt(document.getElementById('polyCount').value, 10);
+                resetCloth(currentPolyCount);
+            });
+            document.getElementById('solverIterations').addEventListener('input', e => solverIterations = parseInt(e.target.value));
+            document.getElementById('clothThickness').addEventListener('input', e => collisionThickness = parseFloat(e.target.value));
+            document.getElementById('toggleCollision').addEventListener('click', e => {
+                selfCollision = !selfCollision;
+                e.target.textContent = `Self-Collision: ${selfCollision ? 'On' : 'Off'}`;
+            });
+
+            // On-screen Mode Controls
+            const modeButtons = document.querySelectorAll('.mode-button');
+            const turntableBtn = document.getElementById('toggleTurntable');
+
+            modeButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    interactionMode = button.dataset.mode;
+                    modeButtons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+                    
+                    const isCamera = interactionMode === 'CAMERA';
+                    controls.enabled = isCamera;
+                    cursorSphere.visible = !isCamera && interactionMode !== 'GRAB';
+                    pointLight.intensity = !isCamera && interactionMode !== 'GRAB' ? 1.5 : 0;
+                });
+            });
+            
+            turntableBtn.addEventListener('click', () => {
+                controls.autoRotate = !controls.autoRotate;
+                turntableBtn.textContent = `360 Turntable: ${controls.autoRotate ? 'On' : 'Off'}`;
+            });
+            
+            // Interaction
+            document.getElementById('interactionRadius').addEventListener('input', e => {
+                interactionRadius = parseFloat(e.target.value)
+                cursorSphere.scale.set(interactionRadius, interactionRadius, interactionRadius);
+            });
+            
+            const strengthButtons = document.querySelectorAll('.strength-btn');
+            strengthButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    interactionStrength = parseFloat(button.dataset.strength);
+                    strengthButtons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+                });
+            });
+            
+            // Export
+            document.getElementById('savePNGBtn').addEventListener('click', savePNG);
+            document.getElementById('recordGIFBtn').addEventListener('click', toggleGIFRecording);
+            
+             // Rendering Options
+            const allRenderObjs = [clothSolid, clothWireframe, clothPoints];
+
+            function setRenderMode(mode) {
+                allRenderObjs.forEach(obj => { if(obj) obj.visible = false; });
+                clothSolid.material.wireframe = false;
+
+                switch(mode) {
+                    case 'SHADED':
+                        clothSolid.visible = true;
+                        break;
+                    case 'POINTS':
+                        clothPoints.visible = true;
+                        break;
+                    case 'TRI_WIREFRAME':
+                        clothSolid.visible = true;
+                        clothSolid.material.wireframe = true;
+                        break;
+                    case 'QUAD_WIREFRAME':
+                        clothWireframe.visible = true;
+                        break;
+                }
+            }
+
+            document.getElementById('shadedRendering').addEventListener('click', () => setRenderMode('SHADED'));
+            document.getElementById('wireframeTriRendering').addEventListener('click', () => setRenderMode('TRI_WIREFRAME'));
+            document.getElementById('wireframeQuadRendering').addEventListener('click', () => setRenderMode('QUAD_WIREFRAME'));
+            document.getElementById('pointRendering').addEventListener('click', () => setRenderMode('POINTS'));
+
+            // Textures
+            document.getElementById('defaultTextureBtn').addEventListener('click', () => {
+                activeTextureGenerator = generateTexture;
+            });
+            document.getElementById('gridTextureBtn').addEventListener('click', () => {
+                 activeTextureGenerator = generateGridTexture;
+            });
+            document.getElementById('circlesTextureBtn').addEventListener('click', () => {
+                 activeTextureGenerator = generateCirclesTexture;
+            });
+             document.getElementById('uploadTextureBtn').addEventListener('click', () => {
+                document.getElementById('textureUpload').click();
+            });
+            document.getElementById('textureUpload').addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            activeTextureGenerator = (ctx, w, h) => {
+                                ctx.drawImage(img, 0, 0, w, h);
+                            };
+                        };
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+            
+            // Forces
+            document.getElementById('toggleWind').addEventListener('click', e => {
+                wind = !wind;
+                e.target.textContent = `Wind: ${wind ? 'On' : 'Off'}`;
+                document.getElementById('wind-strength-control').style.display = wind ? 'block' : 'none';
+                document.getElementById('wind-turbulence-control').style.display = wind ? 'block' : 'none';
+            });
+            document.getElementById('windStrength').addEventListener('input', e => windStrength = parseFloat(e.target.value));
+            document.getElementById('windTurbulence').addEventListener('input', e => windTurbulence = parseFloat(e.target.value));
+            document.getElementById('twist').addEventListener('input', e => twistStrength = parseFloat(e.target.value));
+            document.getElementById('noiseStrength').addEventListener('input', e => noiseStrength = parseFloat(e.target.value));
+            document.getElementById('shockwaveBtn').addEventListener('click', () => {
+                shockwaveActive = true;
+                shockwaveStartTime = performance.now() / 1000;
+            });
+            document.getElementById('explodeBtn').addEventListener('click', () => {
+                 for (const particle of particles) {
+                    const direction = particle.original.clone().normalize();
+                    const force = direction.multiplyScalar(1000);
+                    particle.addForce(force);
+                }
+            });
+            // Background
+            document.getElementById('bgColor1').addEventListener('input', updateBackground);
+            document.getElementById('bgColor2').addEventListener('input', updateBackground);
+            // Camera
+             document.getElementById('resetCamera').addEventListener('click', () => {
+                controls.reset();
+                 if(camera.isPerspectiveCamera) camera.position.set(0, 5, 50);
+                 else {
+                     camera.position.set(20, 20, 20);
+                     camera.lookAt(scene.position);
+                 }
+            });
+        }
+        
+        // --- Utility Functions ---
+
+        function onWindowResize() {
+            updateCanvasSize();
+            updateFrameSize();
+        }
+
+        function updateCanvasSize() {
+            const controlsPanel = document.getElementById('controls-right');
+            const panelWidth = controlsPanel && controlsPanel.style.display !== 'none' ? controlsPanel.offsetWidth : 0;
+            
+            const newWidth = window.innerWidth - panelWidth;
+            const newHeight = window.innerHeight;
+
+            camera.aspect = newWidth / newHeight;
+            camera.updateProjectionMatrix();
+
+            renderer.setSize(newWidth, newHeight);
+        }
+
+        function setupPostProcessing() {
+           // Not currently used
+        }
+
+        function updateFrameSize() {
+            const frame = document.getElementById('recording-frame');
+            const aspect = 16 / 9;
+            const windowWidth = renderer.domElement.clientWidth;
+            const windowHeight = renderer.domElement.clientHeight;
+
+            let width, height, top, left;
+
+            if (windowWidth / windowHeight > aspect) {
+                height = windowHeight * 0.9;
+                width = height * aspect;
+            } else {
+                width = windowWidth * 0.9;
+                height = width / aspect;
+            }
+
+            top = (windowHeight - height) / 2;
+            left = (windowWidth - width) / 2;
+
+            frame.style.width = `${width}px`;
+            frame.style.height = `${height}px`;
+            frame.style.top = `${top}px`;
+            frame.style.left = `${left}px`;
+        }
+
+        function updateBackground() {
+            const color1 = document.getElementById('bgColor1').value;
+            const color2 = document.getElementById('bgColor2').value;
+            document.body.style.background = `linear-gradient(to bottom, ${color1}, ${color2})`;
+        }
+        
+        function resetCloth(polyCount) {
+            simulationRunning = false;
+            cancelAnimationFrame(animationFrameId);
+            document.getElementById('startSimBtn').style.display = 'block';
+            document.getElementById('top-bar').style.display = 'none';
+            document.getElementById('controls-right').style.display = 'none';
+
+            clothHeight = polyCount;
+            clothWidth = Math.floor(polyCount * (25 / 15));
+            createParticlesAndConstraints();
+            const newGeometry = new THREE.ParametricBufferGeometry(clothFunction, clothWidth, clothHeight);
+
+            const meshesToUpdate = [clothSolid, clothPickerMesh];
+            meshesToUpdate.forEach(mesh => {
+                if(mesh) {
+                    mesh.geometry.dispose();
+                    mesh.geometry = newGeometry.clone();
+                }
+            });
+
+            if (clothWireframe) scene.remove(clothWireframe);
+            if (clothPoints) scene.remove(clothPoints);
+            createAdditionalRenders();
+            render(); // Render one frame in the reset state
+        }
+
+        function createAdditionalRenders() {
+            const positions = new Float32Array(particles.length * 3);
+            const wireframeGeom = new THREE.BufferGeometry();
+            wireframeGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            clothWireframe = new THREE.LineSegments(wireframeGeom, new THREE.LineBasicMaterial({ color: 0xffffff }));
+            scene.add(clothWireframe);
+
+            const pointsGeom = new THREE.BufferGeometry();
+            pointsGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(particles.length * 3), 3));
+            clothPoints = new THREE.Points(pointsGeom, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 }));
+            scene.add(clothPoints);
+
+            // Set initial visibility
+            clothWireframe.visible = false;
+            clothPoints.visible = false;
+        }
+        
+        function clothFunction(u, v, target) {
+            const x = (u - 0.5) * clothWidth * restDistance;
+            const y = (v - 0.5) * clothHeight * restDistance;
+            const z = 0;
+            target.set(x, y, z);
+            return target;
+        }
+
+
+        function index(u, v) {
+            return u + v * (clothWidth + 1);
+        }
+
+        function generateTexture(ctx, width, height) {
+            if(!ctx) return;
+            ctx.fillStyle = '#808080';
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.globalAlpha = 0.075;
+            for (let i = 0; i < 20000; i++) {
+                ctx.fillStyle = 'hsl(0,0%,' + (Math.random() * 50 + 50) + '%)';
+                ctx.beginPath();
+                ctx.arc(Math.random() * width, Math.random() * height, Math.random() * 1.5 + 0.5, 0, Math.PI * 2, true);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1.0;
+        }
+        
+        function generateGridTexture(ctx, width, height) {
+            if(!ctx) return;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
+            
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 2;
+            
+            const step = 32;
+            for(let i = step; i < width; i+= step) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i, height);
+                ctx.stroke();
+            }
+            for(let i = step; i < height; i+= step) {
+                ctx.beginPath();
+                ctx.moveTo(0, i);
+                ctx.lineTo(width, i);
+                ctx.stroke();
+            }
+        }
+
+        function generateCirclesTexture(ctx, width, height) {
+            if(!ctx) return;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
+
+            for (let i = 0; i < 100; i++) {
+                ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.2 + 0.05})`;
+                ctx.beginPath();
+                ctx.arc(Math.random() * width, Math.random() * height, Math.random() * 40 + 10, 0, Math.PI * 2, true);
+                ctx.fill();
+            }
+        }
+
+        // --- Export Functions ---
+        
+        function captureFrame(targetCanvas) {
+            const frame = document.getElementById('recording-frame').getBoundingClientRect();
+            const sourceCanvas = renderer.domElement;
+            const context = targetCanvas.getContext('2d');
+            
+            const dpr = renderer.getPixelRatio();
+            const sx = frame.left * dpr;
+            const sy = frame.top * dpr;
+            const sWidth = frame.width * dpr;
+            const sHeight = frame.height * dpr;
+
+            context.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+            context.drawImage(sourceCanvas, sx, sy, sWidth, sHeight, 0, 0, targetCanvas.width, targetCanvas.height);
+        }
+        
+        function savePNG() {
+            const targetWidth = 1920;
+            const targetHeight = 1080;
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = targetWidth;
+            tempCanvas.height = targetHeight;
+            
+            captureFrame(tempCanvas);
+
+            const link = document.createElement('a');
+            link.download = 'cloth_simulation.png';
+            link.href = tempCanvas.toDataURL('image/png');
+            link.click();
+        }
+
+        function toggleGIFRecording() {
+            const button = document.getElementById('recordGIFBtn');
+            const indicator = document.getElementById('recordingIndicator');
+
+            if (isRecording) {
+                isRecording = false;
+                button.textContent = 'Record GIF';
+                indicator.style.display = 'none';
+                gif.render();
+            } else {
+                if (!gifWorkerURL) {
+                    alert("GIF Encoder is not ready yet. Please try again in a moment.");
+                    return;
+                }
+                isRecording = true;
+                button.textContent = 'Stop Recording';
+                indicator.style.display = 'block';
+
+                const targetWidth = 960; // Lower res for smaller GIF file size
+                const targetHeight = 540;
+
+                gif = new GIF({
+                    workers: 2,
+                    quality: 10,
+                    width: targetWidth,
+                    height: targetHeight,
+                    workerScript: gifWorkerURL
+                });
+
+                gif.on('finished', function(blob) {
+                    const link = document.createElement('a');
+                    link.download = 'cloth_animation.gif';
+                    link.href = URL.createObjectURL(blob);
+                    link.click();
+                    URL.revokeObjectURL(link.href);
+                });
+            }
+        }
+        
+        // --- Animation Loop ---
+        function updatePhysics() {
+            if(!simulationRunning) return;
+            const time = performance.now();
+            const delta = (time - lastTime) / 1000;
+            lastTime = time;
+            
+            accumulator += delta;
+
+            while (accumulator >= FIXED_TIMESTEP) {
+                simulate();
+                accumulator -= FIXED_TIMESTEP;
+            }
+        }
+
+        function animate() {
+            animationFrameId = requestAnimationFrame(animate);
+            if(simulationRunning) updatePhysics();
+            render();
+        }
+
+        function render() {
+            // Update cloth mesh from physics simulation
+            const positions = clothSolid.geometry.attributes.position.array;
+            for (let i = 0; i < particles.length; i++) {
+                const p = particles[i].position;
+                positions[i * 3] = p.x;
+                positions[i * 3 + 1] = p.y;
+                positions[i * 3 + 2] = p.z;
+            }
+            clothSolid.geometry.attributes.position.needsUpdate = true;
+            
+            const allMeshes = [clothWireframe, clothPoints, clothPickerMesh];
+            allMeshes.forEach(mesh => {
+                 if (mesh) {
+                    mesh.geometry.attributes.position.copy(clothSolid.geometry.attributes.position);
+                    mesh.geometry.attributes.position.needsUpdate = true;
+                 }
+            });
+            
+            clothPickerMesh.geometry.computeBoundingSphere();
+            clothPickerMesh.geometry.computeBoundingBox();
+            clothSolid.geometry.computeVertexNormals();
+            
+            controls.update();
+            
+            updateClothTexture();
+            
+            if(cursorSphere.visible) {
+                cursorSphere.position.copy(mouse3D);
+                const time = performance.now() * 0.001;
+                const speed = mouse3D.distanceTo(cursorSphere.position) * 10;
+                const hue = (time * 10 * speed) % 360 / 360;
+                const saturation = 0.5 + (mouse.x + 1) / 4;
+                const lightness = 0.5 + (mouse.y + 1) / 4;
+                cursorSphere.material.color.setHSL(hue, saturation, lightness);
+                pointLight.color.setHSL(hue, saturation, lightness);
+            }
+
+            renderer.render(scene, camera);
+
+            if (isRecording) {
+                const gifCanvas = gif.options.width === 960 ? 
+                    (window._gifCanvas || (window._gifCanvas = document.createElement('canvas'))) :
+                    (window._gifCanvas = document.createElement('canvas'));
+
+                gifCanvas.width = gif.options.width;
+                gifCanvas.height = gif.options.height;
+                
+                captureFrame(gifCanvas);
+                gif.addFrame(gifCanvas, {copy: true, delay: 50});
+            }
+        }
+
+        function updateClothTexture() {
+            activeTextureGenerator(textureContext, textureCanvas.width, textureCanvas.height);
+            clothTexture.needsUpdate = true;
+        }
+    </script>
+</body>
+</html>
