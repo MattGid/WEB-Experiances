@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tearable Water Surface</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 1.2rem;
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+        .instruction {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            pointer-events: none;
+            font-size: 0.9rem;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+
+<div id="loading">Generating Physics Mesh...</div>
+<div id="canvas-container"></div>
+<div class="instruction">Left Click & Drag to Pull/Tear • Right Click to Rotate Camera</div>
+
+<script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+
+    // --- Configuration ---
+    const CLOTH_RES = 50;  // Resolution (Particles per side) - Lower than before for CPU physics
+    const PLANE_SIZE = 100;
+    const SPACING = PLANE_SIZE / CLOTH_RES;
+
+    const CONFIG = {
+        gravity: -20,       // Downward force
+        friction: 0.97,     // Air resistance
+        stiffness: 1.0,     // How hard the springs pull back
+        tearStrain: 1.8,    // Stretch multiplier needed to rip (e.g. 2.0 = 200% length)
+        mouseSize: 8,       // Interaction radius
+        mousePull: 1.0,     // Strength of mouse interaction
+        colorHigh: '#00eaff',
+        colorLow: '#003366',
+        opacity: 0.9,
+        wireframe: false,
+        reset: () => window.location.reload()
+    };
+
+    // --- Shader Code (Adapted for explicit geometry) ---
+    // We no longer use a heightmap texture, but standard attributes
+    
+    const vertexShader = `
+        varying vec3 vViewPosition;
+        varying vec3 vNormal;
+        varying float vHeight;
+
+        void main() {
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            gl_Position = projectionMatrix * mvPosition;
+            vViewPosition = -mvPosition.xyz;
+            vNormal = normalMatrix * normal;
+            vHeight = position.y;
+        }
+    `;
+
+    const fragmentShader = `
+        uniform vec3 uColorHigh;
+        uniform vec3 uColorLow;
+        uniform vec3 uSpecularColor;
+        uniform float uShininess;
+        uniform float uOpacity;
+        uniform vec3 uLightPos;
+
+        varying vec3 vViewPosition;
+        varying vec3 vNormal;
+        varying float vHeight;
+
+        void main() {
+            vec3 normal = normalize(vNormal);
+            if (!gl_FrontFacing) normal = -normal; // Double sided lighting
+
+            vec3 viewDir = normalize(vViewPosition);
+            vec3 lightDir = normalize(uLightPos - vViewPosition);
+
+            // Fresnel
+            float fresnel = dot(normal, viewDir);
+            fresnel = clamp(1.0 - fresnel, 0.0, 1.0);
+            fresnel = pow(fresnel, 2.0);
+
+            // Specular
+            vec3 halfDir = normalize(lightDir + viewDir);
+            float specular = max(dot(normal, halfDir), 0.0);
+            specular = pow(specular, uShininess);
+
+            // Color mix based on height (approximate)
+            float hMix = smoothstep(-20.0, 20.0, vHeight);
+            vec3 albedo = mix(uColorLow, uColorHigh, hMix);
+
+            vec3 finalColor = albedo;
+            
+            // Sky reflection style
+            finalColor = mix(finalColor, vec3(1.0), fresnel * 0.4);
+            finalColor += specular * uSpecularColor;
+
+            gl_FragColor = vec4(finalColor, uOpacity);
+        }
+    `;
+
+    // --- Physics Engine (Verlet) ---
+
+    class Particle {
+        constructor(x, y, z, pinned = false) {
+            this.x = x; this.y = y; this.z = z;
+            this.ox = x; this.oy = y; this.oz = z; // Old positions
+            this.pinned = pinned;
+        }
+
+        update(dt) {
+            if (this.pinned) return;
+
+            // Verlet integration: pos = pos + (pos - oldPos) * friction + acc * dt * dt
+            const vx = (this.x - this.ox) * CONFIG.friction;
+            const vy = (this.y - this.oy) * CONFIG.friction;
+            const vz = (this.z - this.oz) * CONFIG.friction;
+
+            this.ox = this.x;
+            this.oy = this.y;
+            this.oz = this.z;
+
+            this.x += vx;
+            this.y += vy + CONFIG.gravity * dt * dt;
+            this.z += vz;
+        }
+    }
+
+    class Constraint {
+        constructor(p1, p2, dist) {
+            this.p1 = p1;
+            this.p2 = p2;
+            this.restLength = dist;
+            this.active = true;
+            this.triangles = []; // Indices of triangles this constraint supports
+        }
+
+        resolve() {
+            if (!this.active) return;
+
+            const dx = this.p2.x - this.p1.x;
+            const dy = this.p2.y - this.p1.y;
+            const dz = this.p2.z - this.p1.z;
+            const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+            // Tearing logic
+            if (dist > this.restLength * CONFIG.tearStrain) {
+                this.active = false;
+                return true; // Return true if torn
+            }
+
+            const diff = (this.restLength - dist) / dist;
+            const scalar = diff * 0.5 * CONFIG.stiffness;
+
+            const offsetX = dx * scalar;
+            const offsetY = dy * scalar;
+            const offsetZ = dz * scalar;
+
+            if (!this.p1.pinned) {
+                this.p1.x -= offsetX;
+                this.p1.y -= offsetY;
+                this.p1.z -= offsetZ;
+            }
+            if (!this.p2.pinned) {
+                this.p2.x += offsetX;
+                this.p2.y += offsetY;
+                this.p2.z += offsetZ;
+            }
+            return false;
+        }
+    }
+
+    // --- Main App ---
+
+    class WaterApp {
+        constructor() {
+            this.container = document.getElementById('canvas-container');
+            this.width = window.innerWidth;
+            this.height = window.innerHeight;
+            this.particles = [];
+            this.constraints = [];
+            
+            this.initThree();
+            this.initPhysics();
+            this.initInteraction();
+            this.initGUI();
+            
+            document.getElementById('loading').style.opacity = 0;
+            this.animate();
+        }
+
+        initThree() {
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0x050505);
+
+            this.camera = new THREE.PerspectiveCamera(45, this.width / this.height, 0.1, 1000);
+            this.camera.position.set(0, 80, 100);
+            this.camera.lookAt(0, 0, 0);
+
+            this.renderer = new THREE.WebGLRenderer({ antialias: true });
+            this.renderer.setSize(this.width, this.height);
+            this.container.appendChild(this.renderer.domElement);
+
+            // Orbit controls for viewing
+            this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+            this.controls.enableDamping = true;
+            this.controls.mouseButtons = {
+                LEFT: null, // We hijack left click for physics
+                MIDDLE: THREE.MOUSE.DOLLY,
+                RIGHT: THREE.MOUSE.ROTATE
+            };
+
+            // Lights
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(50, 100, 50);
+            this.scene.add(dirLight);
+
+            // Geometry
+            this.geometry = new THREE.BufferGeometry();
+            
+            // Attributes will be populated in initPhysics
+            this.uniforms = {
+                uColorHigh: { value: new THREE.Color(CONFIG.colorHigh) },
+                uColorLow: { value: new THREE.Color(CONFIG.colorLow) },
+                uSpecularColor: { value: new THREE.Color(0xffffff) },
+                uShininess: { value: 50 },
+                uOpacity: { value: CONFIG.opacity },
+                uLightPos: { value: new THREE.Vector3(50, 100, 50) }
+            };
+
+            this.material = new THREE.ShaderMaterial({
+                uniforms: this.uniforms,
+                vertexShader: vertexShader,
+                fragmentShader: fragmentShader,
+                side: THREE.DoubleSide,
+                transparent: true,
+                wireframe: CONFIG.wireframe
+            });
+
+            this.mesh = new THREE.Mesh(this.geometry, this.material);
+            this.scene.add(this.mesh);
+            
+            // Raycaster helper
+            this.rayPlane = new THREE.Mesh(
+                new THREE.PlaneGeometry(300, 300),
+                new THREE.MeshBasicMaterial({ visible: false })
+            );
+            this.rayPlane.rotateX(-Math.PI/2);
+            this.scene.add(this.rayPlane);
+        }
+
+        initPhysics() {
+            const cols = CLOTH_RES;
+            const rows = CLOTH_RES;
+
+            // 1. Create Particles
+            const positions = [];
+            const indices = [];
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const px = (x / (cols - 1)) * PLANE_SIZE - PLANE_SIZE / 2;
+                    const pz = (y / (rows - 1)) * PLANE_SIZE - PLANE_SIZE / 2;
+                    
+                    // Pin the four corners
+                    const isPinned = (y === 0 || y === rows - 1) && (x === 0 || x === cols - 1);
+                    
+                    this.particles.push(new Particle(px, 0, pz, isPinned));
+                    positions.push(px, 0, pz);
+                }
+            }
+
+            // 2. Create Constraints (Structural)
+            const addConstraint = (i1, i2) => {
+                const p1 = this.particles[i1];
+                const p2 = this.particles[i2];
+                const dist = Math.sqrt(
+                    (p1.x-p2.x)**2 + (p1.y-p2.y)**2 + (p1.z-p2.z)**2
+                );
+                return new Constraint(p1, p2, dist);
+            };
+
+            // Map to store constraints by particle index pair "min,max"
+            const constraintMap = new Map();
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const i = y * cols + x;
+                    
+                    // Right
+                    if (x < cols - 1) {
+                        const c = addConstraint(i, i + 1);
+                        this.constraints.push(c);
+                        constraintMap.set(`${i},${i+1}`, c);
+                    }
+                    // Bottom
+                    if (y < rows - 1) {
+                        const c = addConstraint(i, i + cols);
+                        this.constraints.push(c);
+                        constraintMap.set(`${i},${i+cols}`, c);
+                    }
+                }
+            }
+
+            // 3. Create Triangles & Link to Constraints
+            // We use standard Grid triangulation
+            for (let y = 0; y < rows - 1; y++) {
+                for (let x = 0; x < cols - 1; x++) {
+                    const i = y * cols + x;
+                    const right = i + 1;
+                    const bottom = i + cols;
+                    const bottomRight = i + cols + 1;
+
+                    // Triangle 1: i, bottom, right
+                    const t1_idx = indices.length;
+                    indices.push(i, bottom, right);
+                    
+                    // Triangle 2: bottom, bottomRight, right
+                    const t2_idx = indices.length;
+                    indices.push(bottom, bottomRight, right);
+
+                    // Associate edges with these triangles so we can delete them if edges break
+                    // Edge i-right
+                    if(constraintMap.has(`${i},${right}`)) 
+                        constraintMap.get(`${i},${right}`).triangles.push(t1_idx);
+                    
+                    // Edge i-bottom
+                    if(constraintMap.has(`${i},${bottom}`)) 
+                        constraintMap.get(`${i},${bottom}`).triangles.push(t1_idx, t2_idx);
+
+                    // Edge bottom-bottomRight
+                    if(constraintMap.has(`${bottom},${bottomRight}`)) 
+                        constraintMap.get(`${bottom},${bottomRight}`).triangles.push(t2_idx);
+
+                    // Edge right-bottomRight
+                    if(constraintMap.has(`${right},${bottomRight}`)) 
+                        constraintMap.get(`${right},${bottomRight}`).triangles.push(t2_idx);
+
+                    // Note: Diagonal edges are not structurally constrained in this simple setup
+                    // so we rely on the box constraints. If a box constraint breaks, the face disappears.
+                }
+            }
+
+            // Upload to Three.js Geometry
+            this.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            this.geometry.setIndex(indices);
+            this.geometry.computeVertexNormals();
+            
+            // We need dynamic updates
+            this.geometry.attributes.position.usage = THREE.DynamicDrawUsage;
+        }
+
+        initInteraction() {
+            this.raycaster = new THREE.Raycaster();
+            this.mouse = new THREE.Vector2();
+            this.isDragging = false;
+            this.dragPoint = new THREE.Vector3();
+            
+            const onMove = (e) => {
+                const x = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+                const y = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+                this.mouse.x = (x / this.width) * 2 - 1;
+                this.mouse.y = -(y / this.height) * 2 + 1;
+
+                if (this.isDragging) {
+                    this.updateDrag();
+                }
+            };
+
+            const onStart = (e) => {
+                // Only left click
+                if (e.button !== 0 && e.type !== 'touchstart') return;
+                
+                this.isDragging = true;
+                this.updateDrag();
+            };
+
+            const onEnd = () => {
+                this.isDragging = false;
+            };
+
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mousedown', onStart);
+            window.addEventListener('mouseup', onEnd);
+            window.addEventListener('touchmove', onMove);
+            window.addEventListener('touchstart', onStart);
+            window.addEventListener('touchend', onEnd);
+            window.addEventListener('resize', () => {
+                this.width = window.innerWidth;
+                this.height = window.innerHeight;
+                this.camera.aspect = this.width / this.height;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(this.width, this.height);
+            });
+        }
+
+        updateDrag() {
+            this.raycaster.setFromCamera(this.mouse, this.camera);
+            // Raycast against the invisible flat plane for consistent height control
+            const intersects = this.raycaster.intersectObject(this.rayPlane);
+            
+            if (intersects.length > 0) {
+                this.dragPoint.copy(intersects[0].point);
+            }
+        }
+
+        initGUI() {
+            const gui = new GUI();
+            gui.title("Tearable Surface");
+            
+            const phys = gui.addFolder('Physics');
+            phys.add(CONFIG, 'stiffness', 0.1, 2.0).name('Stiffness');
+            phys.add(CONFIG, 'tearStrain', 1.1, 5.0).name('Tear Threshold');
+            phys.add(CONFIG, 'mouseSize', 1, 20).name('Mouse Radius');
+            phys.add(CONFIG, 'gravity', -50, 10).name('Gravity');
+            
+            const style = gui.addFolder('Style');
+            style.addColor(CONFIG, 'colorHigh').onChange(c => this.uniforms.uColorHigh.value.set(c));
+            style.addColor(CONFIG, 'colorLow').onChange(c => this.uniforms.uColorLow.value.set(c));
+            style.add(CONFIG, 'wireframe').onChange(v => this.material.wireframe = v);
+            
+            gui.add(CONFIG, 'reset').name('Reset Simulation');
+        }
+
+        updatePhysics(dt) {
+            // 1. Apply Forces & Integrate
+            for (let i = 0; i < this.particles.length; i++) {
+                const p = this.particles[i];
+                
+                // Interaction Force
+                if (this.isDragging) {
+                    const dx = this.dragPoint.x - p.x;
+                    const dy = this.dragPoint.z - p.z; // mapped to Z in world
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    if (dist < CONFIG.mouseSize) {
+                        const force = (1 - dist / CONFIG.mouseSize) * CONFIG.mousePull;
+                        // Pull towards mouse, allowing y-movement
+                        p.x += (this.dragPoint.x - p.x) * force * 0.2;
+                        p.z += (this.dragPoint.z - p.z) * force * 0.2;
+                        p.y += (this.dragPoint.y - p.y) * force * 0.2; // Lift
+                    }
+                }
+
+                p.update(dt);
+            }
+
+            // 2. Solve Constraints & Tear
+            let torn = false;
+            // Solve multiple times for stiffness
+            for (let iter = 0; iter < 3; iter++) {
+                for (let i = 0; i < this.constraints.length; i++) {
+                    const c = this.constraints[i];
+                    if (c.active) {
+                        const didTear = c.resolve();
+                        if (didTear) {
+                            torn = true;
+                            // Hide associated triangles by setting indices to 0
+                            // (A degenerate triangle is not rendered)
+                            const idxArr = this.geometry.index.array;
+                            for (let t of c.triangles) {
+                                // Triangles are stored as 3 consecutive indices start at t
+                                idxArr[t] = 0;
+                                idxArr[t+1] = 0;
+                                idxArr[t+2] = 0;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (torn) {
+                this.geometry.index.needsUpdate = true;
+            }
+        }
+
+        updateGeometry() {
+            const positions = this.geometry.attributes.position.array;
+            
+            for (let i = 0; i < this.particles.length; i++) {
+                positions[i * 3] = this.particles[i].x;
+                positions[i * 3 + 1] = this.particles[i].y;
+                positions[i * 3 + 2] = this.particles[i].z;
+            }
+            
+            this.geometry.attributes.position.needsUpdate = true;
+            
+            // Recomputing normals is expensive but necessary for lighting on a deforming mesh
+            // optimization: only do it every other frame or if movement is significant
+            this.geometry.computeVertexNormals();
+        }
+
+        animate() {
+            requestAnimationFrame(() => this.animate());
+            
+            // Fixed time step for stability
+            const dt = 0.016; 
+            this.updatePhysics(dt);
+            this.updateGeometry();
+            
+            this.controls.update();
+            this.renderer.render(this.scene, this.camera);
+        }
+    }
+
+    new WaterApp();
+
+</script>
+</body>
+</html>
