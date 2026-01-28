@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Cloth Simulation Studio</title>
+    <style>
+        :root {
+            --bg-glass: rgba(20, 20, 20, 0.9);
+            --border-glass: rgba(255, 255, 255, 0.15);
+            --accent: #0088ff;
+            --text: #eeeeee;
+            --text-dim: #888888;
+        }
+
+        body { margin: 0; overflow: hidden; background-color: #969696; font-family: 'Inter', system-ui, -apple-system, sans-serif; color: var(--text); font-size: 11px; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 0; }
+        
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; font-size: 14px; pointer-events: none; transition: opacity 0.5s;
+            text-align: center; width: auto; background: rgba(0,0,0,0.8); padding: 10px 20px; border-radius: 8px;
+            z-index: 100;
+        }
+
+        /* --- Compact UI Panel --- */
+        #ui-container {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 250px;
+            max-height: calc(100vh - 20px);
+            background: var(--bg-glass);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid var(--border-glass);
+            border-radius: 12px;
+            padding: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            overflow-y: auto;
+            z-index: 10;
+            scrollbar-width: thin;
+            scrollbar-color: #444 transparent;
+        }
+
+        h2 { font-size: 13px; margin: 0 0 8px 0; font-weight: 700; color: white; display: flex; justify-content: space-between; align-items: center; }
+        h3 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent); margin: 10px 0 5px 0; border-bottom: 1px solid var(--border-glass); padding-bottom: 2px; }
+
+        .control-group { margin-bottom: 5px; }
+        .control-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+        label { font-size: 10px; color: #ccc; }
+        .value-display { font-size: 9px; color: var(--accent); font-family: monospace; }
+
+        /* Compact Sliders */
+        input[type="range"] {
+            -webkit-appearance: none; width: 100%; height: 3px; background: #444; border-radius: 2px; outline: none; margin-top: 2px; display: block;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 10px; height: 10px; background: #ddd; border-radius: 50%; cursor: pointer; border: none;
+        }
+        input[type="range"]:active::-webkit-slider-thumb { background: var(--accent); }
+        
+        input[type="color"] { -webkit-appearance: none; border: none; width: 20px; height: 16px; padding: 0; background: none; cursor: pointer; }
+        input[type="color"]::-webkit-color-swatch { border: 1px solid #555; border-radius: 3px; }
+        
+        /* File Input */
+        input[type="file"] {
+            font-size: 9px; color: #aaa; width: 140px;
+        }
+        input[type="file"]::-webkit-file-upload-button {
+            background: #333; color: #eee; border: 1px solid #444; border-radius: 3px; cursor: pointer; padding: 2px 6px; font-size: 9px;
+        }
+
+        /* Compact Buttons */
+        button.action-btn {
+            width: 100%; padding: 5px; background: #333; border: 1px solid #444; border-radius: 4px; color: white; cursor: pointer; font-size: 10px; transition: all 0.2s; margin-top: 2px;
+        }
+        button.action-btn:hover { background: #444; border-color: #666; }
+        button.action-btn.primary { background: rgba(0, 136, 255, 0.2); border-color: var(--accent); color: var(--accent); }
+        button.action-btn.primary:hover { background: var(--accent); color: white; }
+        button.action-btn.secondary { background: #2a2a2a; color: #aaa; margin-top:0; margin-bottom: 8px;}
+        button.action-btn.secondary:hover { color: #fff; background: #333; }
+
+        .view-buttons { display: flex; gap: 4px; margin-bottom: 8px; }
+        .view-btn { flex: 1; padding: 4px; background: #222; border: 1px solid #333; color: #888; font-size: 9px; cursor: pointer; border-radius: 4px; }
+        .view-btn:hover { background: #333; color: white; }
+
+        /* Grid Selector */
+        .grid-selector {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-bottom: 5px;
+        }
+        .grid-item {
+            aspect-ratio: 1; background: #222; border: 1px solid #333; border-radius: 4px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 9px; color: #555; transition: all 0.1s;
+        }
+        .grid-item:hover { background: #333; }
+        .grid-item.active { border-color: var(--accent); background: rgba(0, 136, 255, 0.15); color: var(--accent); font-weight: bold; }
+        
+        /* Disabled grid item style */
+        .grid-item.disabled { opacity: 0.4; border-style: dashed; }
+        .grid-item.disabled.active { opacity: 0.7; border-style: solid; }
+
+        select { width: 100%; padding: 3px; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; outline: none; font-size: 10px; }
+
+        /* Small Toggle */
+        .toggle-switch { position: relative; display: inline-block; width: 24px; height: 14px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #333; transition: .2s; border-radius: 16px; }
+        .slider:before { position: absolute; content: ""; height: 10px; width: 10px; left: 2px; bottom: 2px; background-color: #888; transition: .2s; border-radius: 50%; }
+        input:checked + .slider { background-color: rgba(0, 136, 255, 0.3); }
+        input:checked + .slider:before { transform: translateX(10px); background-color: var(--accent); }
+
+        .ui-hint {
+            position: absolute; bottom: 15px; left: 15px; color: rgba(0,0,0,0.4); 
+            pointer-events: none; user-select: none; font-size: 10px; font-weight: 600;
+        }
+
+        /* Wind Joystick */
+        #wind-joystick {
+            width: 70px;
+            height: 70px;
+            border-radius: 8px;
+            border: 1px solid var(--border-glass);
+            background: #222;
+            position: relative;
+            touch-action: none;
+        }
+        #wind-joystick::before,
+        #wind-joystick::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 0;
+            width: 1px;
+            height: 100%;
+            background: rgba(255,255,255,0.08);
+            transform: translateX(-0.5px);
+        }
+        #wind-joystick::after {
+            left: 0;
+            top: 50%;
+            width: 100%;
+            height: 1px;
+            transform: translateY(-0.5px);
+        }
+        #wind-knob {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent);
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+            box-shadow: 0 0 4px rgba(0,0,0,0.8);
+        }
+    </style>
+    <script type="importmap">
+        { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+    </script>
+</head>
+<body>
+
+<div id="loading">Initializing...</div>
+<div id="canvas-container"></div>
+
+<div id="ui-container">
+    <h2>Cloth Studio <span style="font-size:9px; opacity:0.5; font-weight:400">v4.0</span></h2>
+
+    <div class="control-row">
+        <label>Simulation Active</label>
+        <label class="toggle-switch"><input type="checkbox" id="pause-toggle" checked><span class="slider"></span></label>
+    </div>
+    
+    <div class="view-buttons">
+        <button class="view-btn" onclick="window.app.setCamera('persp')">Persp</button>
+        <button class="view-btn" onclick="window.app.setCamera('top')">Top</button>
+        <button class="view-btn" onclick="window.app.setCamera('side')">Side</button>
+        <button class="view-btn" onclick="window.app.setCamera('iso')">Iso</button>
+    </div>
+
+    <h3>Global Environment</h3>
+    <div class="control-row"><label>Background Color</label><input type="color" id="inp-bgcolor" value="#969696"></div>
+    <div class="control-row"><label>Env Map</label><input type="file" id="inp-hdri" accept=".hdr, .png, .jpg, .jpeg, .webp, .gif"></div>
+    <div class="control-row"><label>Show Env BG</label><label class="toggle-switch"><input type="checkbox" id="hdri-bg-toggle" checked><span class="slider"></span></label></div>
+    <div class="control-row"><label>Global Gravity</label><label class="toggle-switch"><input type="checkbox" id="gravity-toggle"><span class="slider"></span></label></div>
+    <div class="control-row"><label>Collider</label><label class="toggle-switch"><input type="checkbox" id="inp-collider"><span class="slider"></span></label></div>
+    
+    <div class="control-group">
+        <div class="control-row"><label>Wind Direction</label></div>
+        <div style="display:flex; gap:6px; align-items:center;">
+            <div id="wind-joystick">
+                <div id="wind-knob"></div>
+            </div>
+            <div style="flex:1;">
+                <div class="control-row"><label>Wind (X/Y/Z)</label></div>
+                <div style="display:flex; gap:2px">
+                    <input type="range" id="inp-windX" min="-200" max="200" value="20" title="X">
+                    <input type="range" id="inp-windY" min="-200" max="200" value="5" title="Y">
+                    <input type="range" id="inp-windZ" min="-200" max="200" value="10" title="Z">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="control-group">
+        <div class="control-row"><label>Wind Strength</label><span id="val-windStrength" class="value-display">1.0</span></div>
+        <input type="range" id="inp-windStrength" min="0" max="10" step="0.1" value="1.0">
+    </div>
+
+    <div class="control-group">
+        <div class="control-row"><label>Wind Variability</label><span id="val-windVariance" class="value-display">1.0</span></div>
+        <input type="range" id="inp-windVariance" min="0" max="5" step="0.1" value="1.0">
+    </div>
+
+    <h3>Lighting & Shadows</h3>
+    <div class="control-group">
+        <div class="control-row"><label>Light Pos (X/Y/Z)</label></div>
+        <div style="display:flex; gap:2px">
+            <input type="range" id="inp-lightX" min="-500" max="500" value="200" title="X">
+            <input type="range" id="inp-lightY" min="100" max="1000" value="400" title="Y">
+            <input type="range" id="inp-lightZ" min="-500" max="500" value="200" title="Z">
+        </div>
+    </div>
+    <div class="control-group">
+        <div class="control-row"><label>Intensity (Dir/Amb)</label></div>
+        <div style="display:flex; gap:2px">
+            <input type="range" id="inp-intDir" min="0" max="3" step="0.1" value="1" title="Directional">
+            <input type="range" id="inp-intAmb" min="0" max="1" step="0.1" value="0.4" title="Ambient">
+        </div>
+    </div>
+    <div class="control-row"><label>Cast Shadows</label><label class="toggle-switch"><input type="checkbox" id="shadow-toggle" checked><span class="slider"></span></label></div>
+
+    <h3>Distribution</h3>
+    <div class="control-group">
+        <div class="control-row"><label>Grid Spacing</label><span id="val-spacing" class="value-display">250</span></div>
+        <input type="range" id="inp-spacing" min="-500" max="800" value="250">
+    </div>
+    <select id="inp-layout" style="margin-bottom:10px">
+        <option value="XZ Grid">Flat Floor Grid (XZ)</option>
+        <option value="XY Grid">Vertical Wall Grid (XY)</option>
+        <option value="Y Stack">Vertical Stack (Y)</option>
+        <option value="X Stack">Horizontal Stack (X)</option>
+        <option value="Z Stack">Depth Stack (Z)</option>
+    </select>
+
+    <h3>Selection <span id="selected-id" style="float:right; opacity:0.5">#5</span></h3>
+    <div class="grid-selector" id="cloth-grid"></div>
+    <button id="btn-select-all" class="action-btn secondary">Select All</button>
+
+    <div id="selected-cloth-controls">
+        <div class="control-row" style="margin-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:5px;">
+            <label style="color:#fff; font-weight:bold;">Item Enabled</label>
+            <label class="toggle-switch"><input type="checkbox" id="inp-item-active"><span class="slider"></span></label>
+        </div>
+
+        <div class="control-group">
+            <select id="inp-material">
+                <option value="Silk (Red)">Silk (Red)</option>
+                <option value="Denim">Denim</option>
+                <option value="Latex (Black)">Latex (Black)</option>
+                <option value="Gold Foil">Gold Foil</option>
+                <option value="Tron Grid">Tron Grid</option>
+                <option value="Polka Dot">Polka Dot</option>
+                <option value="Wireframe">Wireframe</option>
+                <option value="Glass/Ghost">Glass</option>
+                <option value="Holographic">Holographic</option>
+                <option value="Thermal">Thermal</option>
+                <!-- New Shaders -->
+                <option value="Fire">Fire (Shader)</option>
+                <option value="Smoke">Smoke (Shader)</option>
+                <option value="Turbulence">Turbulence (Shader)</option>
+            </select>
+        </div>
+        
+        <!-- Dynamic Shader Parameters Container -->
+        <div id="dynamic-shader-params"></div>
+
+        <div class="control-group">
+            <select id="inp-shape">
+                <option value="4-corners">4 Corners</option>
+                <option value="top-bar">Top Bar</option>
+                <option value="corners">2 Corners (Top)</option>
+                <option value="single">Single Point</option>
+                <option value="curtain">Pleated</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <div class="control-row"><label>Polycount</label><span id="val-polycount" class="value-display">20</span></div>
+            <input type="range" id="inp-polycount" min="10" max="50" step="2" value="20">
+        </div>
+        
+        <div class="control-group">
+            <div class="control-row"><label>Stiffness</label><span id="val-iter" class="value-display">5</span></div>
+            <input type="range" id="inp-iter" min="1" max="20" step="1" value="5">
+        </div>
+
+        <div class="control-group">
+            <div class="control-row"><label>Damping</label><span id="val-damping" class="value-display">0.97</span></div>
+            <input type="range" id="inp-damping" min="0.90" max="0.995" step="0.001" value="0.97">
+        </div>
+
+        <div class="control-group">
+            <div class="control-row"><label>Turbulence</label><span id="val-turb" class="value-display">1.0</span></div>
+            <input type="range" id="inp-turb" min="0.1" max="5.0" step="0.1" value="1.0">
+        </div>
+        
+        <div class="control-group">
+            <div class="control-row"><label>Wave Height</label><span id="val-wave" class="value-display">20</span></div>
+            <input type="range" id="inp-wave" min="0" max="100" value="20">
+        </div>
+
+        <div class="control-group">
+            <div class="control-row"><label>Item Gravity</label><span id="val-gravity" class="value-display">-981</span></div>
+            <input type="range" id="inp-gravity" min="-2000" max="500" value="-981">
+        </div>
+        
+        <button id="btn-reset" class="action-btn primary">Reset Selected</button>
+    </div>
+</div>
+
+<div class="ui-hint">Shift+Click to Multi-Select &nbsp;&bull;&nbsp; Drag Sphere to Move</div>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { DragControls } from 'three/addons/controls/DragControls.js';
+    import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+
+    // --- Procedural Textures ---
+    function createProceduralTexture(type, color1, color2) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512; canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = color1; ctx.fillRect(0, 0, 512, 512);
+        if (type === 'grid') {
+            ctx.strokeStyle = color2; ctx.lineWidth = 5;
+            for(let i=0; i<=512; i+=64) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,512); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(512,i); ctx.stroke(); }
+        } else if (type === 'dots') {
+            ctx.fillStyle = color2;
+            for(let x=25; x<512; x+=50) for(let y=25; y<512; y+=50) { ctx.beginPath(); ctx.arc(x,y,15,0,Math.PI*2); ctx.fill(); }
+        } else if (type === 'noise') {
+            for(let i=0; i<50000; i++) { ctx.fillStyle = `rgba(255,255,255,${Math.random()*0.1})`; ctx.fillRect(Math.random()*512, Math.random()*512, 2, 2); }
+        }
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+        return tex;
+    }
+
+    // --- GLSL Noise Chunks ---
+    const snoise = `
+    vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+    vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+    float snoise(vec3 v) {
+      const vec2  C = vec2(1.0/6.0, 1.0/3.0);
+      const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+      vec3 i  = floor(v + dot(v, C.yyy) );
+      vec3 x0 = v - i + dot(i, C.xxx) ;
+      vec3 g = step(x0.yzx, x0.xyz);
+      vec3 l = 1.0 - g;
+      vec3 i1 = min( g.xyz, l.zxy );
+      vec3 i2 = max( g.xyz, l.zxy );
+      vec3 x1 = x0 - i1 + C.xxx;
+      vec3 x2 = x0 - i2 + C.yyy;
+      vec3 x3 = x0 - D.yyy;
+      i = mod289(i);
+      vec4 p = permute( permute( permute( i.z + vec4(0.0, i1.z, i2.z, 1.0 )) + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+      float n_ = 0.142857142857;
+      vec3  ns = n_ * D.wyz - D.xzx;
+      vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+      vec4 x_ = floor(j * ns.z);
+      vec4 y_ = floor(j - 7.0 * x_ );
+      vec4 x = x_ *ns.x + ns.yyyy;
+      vec4 y = y_ *ns.x + ns.yyyy;
+      vec4 h = 1.0 - abs(x) - abs(y);
+      vec4 b0 = vec4( x.xy, y.xy );
+      vec4 b1 = vec4( x.zw, y.zw );
+      vec4 s0 = floor(b0)*2.0 + 1.0;
+      vec4 s1 = floor(b1)*2.0 + 1.0;
+      vec4 sh = -step(h, vec4(0.0));
+      vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+      vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+      vec3 p0 = vec3(a0.xy,h.x);
+      vec3 p1 = vec3(a0.zw,h.y);
+      vec3 p2 = vec3(a1.xy,h.z);
+      vec3 p3 = vec3(a1.zw,h.w);
+      vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+      p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+      vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+      m = m * m;
+      return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3) ) );
+    }
+    `;
+
+    // --- Physics Engine ---
+    class Particle {
+        constructor(x, y, z) {
+            this.position = new THREE.Vector3(x, y, z);
+            this.previous = new THREE.Vector3(x, y, z);
+            this.original = new THREE.Vector3(x, y, z);
+            this.a = new THREE.Vector3(0, 0, 0); 
+            this.tmp = new THREE.Vector3();
+            this.pinned = false;
+        }
+        addForce(force) { this.a.add(this.tmp.copy(force).multiplyScalar(2)); } 
+        integrate(timesq, drag) {
+            if (this.pinned) { this.position.copy(this.original); this.previous.copy(this.original); return; }
+            const newPos = this.tmp.subVectors(this.position, this.previous);
+            newPos.multiplyScalar(drag).add(this.position);
+            newPos.add(this.a.multiplyScalar(timesq));
+            this.tmp = this.previous; this.previous = this.position; this.position = newPos; this.a.set(0, 0, 0);
+        }
+    }
+
+    class Cloth {
+        constructor(w, h, width, height, positionOffset) {
+            this.w = w; this.h = h;
+            this.particles = []; this.constraints = [];
+            this.offset = positionOffset.clone();
+            
+            // Per-Item Settings (Default)
+            this.isActive = true; // Visibility/Simulation Toggle
+            this.settings = { 
+                pins: '4-corners', // Changed default to 4-corners
+                gravity: -981,
+                damping: 0.97,
+                waveHeight: 20,
+                turbulence: 1.0,
+                iterations: 5,
+                materialName: 'Silk (Red)'
+            };
+
+            // Init Particles
+            for (let v = 0; v <= h; v++) {
+                for (let u = 0; u <= w; u++) {
+                    this.particles.push(new Particle(
+                        positionOffset.x + u * (width / w) - width/2,
+                        positionOffset.y + height/2,
+                        positionOffset.z + v * (height / h) - height/2 + (Math.random() * 2)
+                    ));
+                }
+            }
+
+            // Init Constraints
+            const index = (u, v) => u + v * (w + 1);
+            const add = (p1, p2) => this.constraints.push([p1, p2, p1.position.distanceTo(p2.position)]);
+            for (let v = 0; v <= h; v++) {
+                for (let u = 0; u <= w; u++) {
+                    if (u < w) add(this.particles[index(u,v)], this.particles[index(u+1,v)]);
+                    if (v < h) add(this.particles[index(u,v)], this.particles[index(u,v+1)]);
+                    if (u < w && v < h) { 
+                        add(this.particles[index(u,v)], this.particles[index(u+1,v+1)]);
+                        add(this.particles[index(u+1,v)], this.particles[index(u,v+1)]);
+                    }
+                }
+            }
+            this.pinNodes();
+        }
+
+        pinNodes() {
+            this.particles.forEach(p => p.pinned = false);
+            const w = this.w; const h = this.h;
+            const idx = (u, v) => u + v * (w + 1);
+            
+            if (this.settings.pins === 'top-bar') for (let u = 0; u <= w; u++) this.particles[idx(u, 0)].pinned = true;
+            else if (this.settings.pins === 'corners') { this.particles[idx(0, 0)].pinned = true; this.particles[idx(w, 0)].pinned = true; }
+            else if (this.settings.pins === '4-corners') { 
+                this.particles[idx(0, 0)].pinned = true; 
+                this.particles[idx(w, 0)].pinned = true;
+                this.particles[idx(0, h)].pinned = true;
+                this.particles[idx(w, h)].pinned = true;
+            }
+            else if (this.settings.pins === 'single') this.particles[idx(Math.floor(w/2), 0)].pinned = true;
+            else if (this.settings.pins === 'curtain') for (let u = 0; u <= w; u+=4) this.particles[idx(u, 0)].pinned = true;
+        }
+
+        update(dt, globalWind, sphereData, gravityEnabled, windVariance = 1.0) {
+            if (!this.isActive) return; // Skip if inactive
+
+            const timesq = dt * dt;
+            const diff = new THREE.Vector3();
+            const time = Date.now() * 0.001 * this.settings.turbulence * windVariance;
+
+            for (let i = 0; i < this.particles.length; i++) {
+                const p = this.particles[i];
+                if (gravityEnabled) p.addForce(new THREE.Vector3(0, this.settings.gravity, 0));
+                
+                const wind = new THREE.Vector3(
+                    Math.sin(time + p.position.y * 0.1) * this.settings.waveHeight * windVariance + globalWind.x,
+                    Math.cos(time * 1.1 + p.position.z * 0.1) * (this.settings.waveHeight * 0.5) * windVariance + globalWind.y,
+                    Math.sin(time * 0.7) * (this.settings.waveHeight * 0.5) * windVariance + globalWind.z
+                );
+                p.addForce(wind);
+                p.integrate(timesq, this.settings.damping);
+
+                if (sphereData && sphereData.enabled) {
+                    diff.subVectors(p.position, sphereData.center);
+                    if (diff.length() < sphereData.radius) {
+                        diff.normalize().multiplyScalar(sphereData.radius);
+                        p.position.copy(sphereData.center).add(diff);
+                    }
+                }
+            }
+
+            for (let i = 0; i < this.settings.iterations; i++) {
+                for (let j = 0; j < this.constraints.length; j++) {
+                    const [p1, p2, rest] = this.constraints[j];
+                    diff.subVectors(p2.position, p1.position);
+                    const currentDist = diff.length();
+                    if (currentDist === 0) continue; 
+                    const correction = diff.multiplyScalar(1 - rest / currentDist).multiplyScalar(0.5);
+                    if (!p1.pinned) p1.position.add(correction);
+                    if (!p2.pinned) p2.position.sub(correction);
+                }
+            }
+        }
+    }
+
+    // --- Main App ---
+    class ClothApp {
+        constructor() {
+            this.container = document.getElementById('canvas-container');
+            this.loading = document.getElementById('loading');
+            window.app = this;
+            
+            this.renderer = new THREE.WebGLRenderer({ antialias: true });
+            this.renderer.setPixelRatio(window.devicePixelRatio);
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            this.renderer.shadowMap.enabled = true;
+            
+            // Set Tone Mapping for HDRI
+            this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            this.renderer.toneMappingExposure = 1.0;
+            
+            this.container.appendChild(this.renderer.domElement);
+
+            this.scene = new THREE.Scene();
+            const bgCol = 0x969696;
+            this.scene.background = new THREE.Color(bgCol);
+            
+            this.camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 1, 5000);
+            this.camera.position.set(0, 200, 800);
+
+            this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+            this.controls.enableDamping = true;
+            
+            this.cloths = [];
+            this.clothMeshes = [];
+            this.selectedIndices = new Set([4]); 
+            this.loadedHDRI = null; // Store HDRI texture
+
+            this.textures = {
+                grid: createProceduralTexture('grid', '#222', '#00ffcc'),
+                polka: createProceduralTexture('dots', '#880000', '#ffcc00'),
+                noise: createProceduralTexture('noise', '#111', '#fff')
+            };
+
+            this.params = {
+                windX: 20, windY: 5, windZ: 10,
+                windStrength: 1.0, windVariance: 1.0,
+                paused: false, gravityEnabled: false,
+                layoutMode: 'XZ Grid', spacing: 250,
+                lightX: 200, lightY: 400, lightZ: 200,
+                intensityDir: 1.0, intensityAmb: 0.4,
+                bgColor: '#969696',
+                showHDRI: true 
+            };
+
+            this.setupLights();
+            this.setupCollisionSphere();
+            this.initCloths();
+            this.buildUI();
+            
+            this.loading.style.opacity = 0;
+            this.clock = new THREE.Clock();
+            window.addEventListener('resize', this.onResize.bind(this));
+            this.animate();
+        }
+
+        setupLights() {
+            this.ambientLight = new THREE.AmbientLight(0xffffff, this.params.intensityAmb);
+            this.scene.add(this.ambientLight);
+            
+            this.dirLight = new THREE.DirectionalLight(0xffffff, this.params.intensityDir);
+            this.dirLight.position.set(this.params.lightX, this.params.lightY, this.params.lightZ);
+            this.dirLight.castShadow = true;
+            this.dirLight.shadow.mapSize.width=2048; this.dirLight.shadow.mapSize.height=2048;
+            this.dirLight.shadow.camera.left=-500; this.dirLight.shadow.camera.right=500;
+            this.dirLight.shadow.camera.top=500; this.dirLight.shadow.camera.bottom=-500;
+            this.scene.add(this.dirLight);
+        }
+
+        setupCollisionSphere() {
+            const geo = new THREE.SphereGeometry(60, 32, 32);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness:0.2, metalness:0.8 });
+            this.collisionSphere = new THREE.Mesh(geo, mat);
+            this.collisionSphere.castShadow = true; this.collisionSphere.receiveShadow = true;
+            this.collisionSphere.visible = false;
+            this.scene.add(this.collisionSphere);
+            this.sphereData = { center: this.collisionSphere.position, radius: 60, enabled: false };
+            
+            this.dragControls = new DragControls([this.collisionSphere], this.camera, this.renderer.domElement);
+            this.dragControls.enabled = false;
+            this.dragControls.addEventListener('dragstart', () => { this.controls.enabled = false; });
+            this.dragControls.addEventListener('dragend', () => { this.controls.enabled = true; });
+        }
+
+        getShader(type) {
+            // Helper for shader params metadata (not used in rendering, just for UI ref)
+            const shaderMeta = {
+                'Fire': { 
+                    controls: [
+                        { label:'Fire Scale', u:'scale', min:1, max:10, val:3.0 },
+                        { label:'Fire Speed', u:'speed', min:0, max:5, val:1.0 },
+                        { label:'Threshold', u:'threshold', min:0, max:1, val:0.3 }
+                    ]
+                },
+                'Smoke': {
+                    controls: [
+                        { label:'Density', u:'density', min:0, max:2, val:1.0 },
+                        { label:'Speed', u:'speed', min:0, max:2, val:0.2 },
+                        { label:'Scale', u:'scale', min:1, max:10, val:4.0 }
+                    ]
+                },
+                'Turbulence': {
+                    controls: [
+                        { label:'Distortion', u:'magnitude', min:0, max:2, val:0.5 },
+                        { label:'Scale', u:'scale', min:1, max:20, val:5.0 },
+                        { label:'Speed', u:'speed', min:0, max:5, val:1.0 }
+                    ]
+                }
+            };
+
+            const commonVertex = `varying vec2 vUv; varying vec3 vNormal; void main() { vUv = uv; vNormal = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+
+            switch(type) {
+                // --- PBR Materials ---
+                case 'Silk (Red)': return new THREE.MeshPhysicalMaterial({ color: 0xaa0000, metalness:0.1, roughness:0.1, clearcoat:1.0, side:2 });
+                case 'Denim': return new THREE.MeshStandardMaterial({ color: 0x2244aa, roughness:0.9, map:this.textures.noise, bumpMap:this.textures.noise, side:2 });
+                case 'Latex (Black)': return new THREE.MeshPhysicalMaterial({ color: 0x111111, metalness:0, roughness:0.05, specularIntensity:1, side:2 });
+                case 'Gold Foil': return new THREE.MeshStandardMaterial({ color: 0xffcc00, metalness:1, roughness:0.2, side:2 });
+                case 'Tron Grid': return new THREE.MeshBasicMaterial({ map:this.textures.grid, color:0xffffff, side:2 });
+                case 'Polka Dot': return new THREE.MeshStandardMaterial({ map:this.textures.polka, roughness:0.5, side:2 });
+                case 'Wireframe': return new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+                case 'Glass/Ghost': return new THREE.MeshPhysicalMaterial({ color:0xffffff, metalness:0.1, roughness:0.05, transmission:0.8, transparent:true, opacity:0.7, side:2 });
+                case 'Holographic': return new THREE.ShaderMaterial({ uniforms: { time: { value: 1.0 } }, vertexShader: commonVertex, fragmentShader: `uniform float time; varying vec2 vUv; varying vec3 vNormal; void main() { vec3 norm = normalize(vNormal); float fresnel = pow(1.0 - dot(norm, vec3(0,0,1)), 2.0); vec3 col = 0.5 + 0.5 * cos(time + vUv.xyx + vec3(0,2,4)); gl_FragColor = vec4(col * fresnel + 0.2, 0.8); }`, side: 2, transparent: true });
+                case 'Thermal': return new THREE.ShaderMaterial({ uniforms: { time: { value: 0 } }, vertexShader: `varying float vY; void main() { vY = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`, fragmentShader: `varying float vY; void main() { float t = smoothstep(-100.0, 100.0, vY); vec3 col = mix(vec3(0,0,1), vec3(1,0,0), t); gl_FragColor = vec4(col, 1.0); }`, side: 2 });
+                
+                // --- NEW SHADERS ---
+                case 'Fire': 
+                    var mat = new THREE.ShaderMaterial({
+                        uniforms: { time: { value: 0 }, speed: { value: 1.0 }, scale: { value: 3.0 }, threshold: { value: 0.3 } },
+                        vertexShader: commonVertex,
+                        fragmentShader: `
+                            uniform float time; uniform float speed; uniform float scale; uniform float threshold;
+                            varying vec2 vUv;
+                            ${snoise}
+                            void main() {
+                                vec2 uv = vUv * scale;
+                                uv.y -= time * speed;
+                                float n = snoise(vec3(uv, time * 0.1)) * 0.5 + 0.5;
+                                vec3 col = mix(vec3(1.0, 0.0, 0.0), vec3(1.0, 1.0, 0.0), n * 2.0);
+                                float alpha = smoothstep(threshold, threshold + 0.2, n);
+                                if (alpha < 0.01) discard;
+                                gl_FragColor = vec4(col, alpha);
+                            }
+                        `,
+                        side: 2, transparent: true
+                    });
+                    mat.userData.shaderMeta = shaderMeta['Fire'];
+                    return mat;
+
+                case 'Smoke':
+                    var mat = new THREE.ShaderMaterial({
+                        uniforms: { time: { value: 0 }, speed: { value: 0.2 }, density: { value: 1.0 }, scale: { value: 4.0 } },
+                        vertexShader: commonVertex,
+                        fragmentShader: `
+                            uniform float time; uniform float speed; uniform float density; uniform float scale;
+                            varying vec2 vUv;
+                            ${snoise}
+                            void main() {
+                                vec2 uv = vUv * scale;
+                                uv.y -= time * speed;
+                                float n = snoise(vec3(uv, time * 0.1));
+                                float alpha = smoothstep(0.0, 1.0, n + 0.5) * density;
+                                gl_FragColor = vec4(vec3(0.8), alpha);
+                            }
+                        `,
+                        side: 2, transparent: true
+                    });
+                    mat.userData.shaderMeta = shaderMeta['Smoke'];
+                    return mat;
+
+                case 'Turbulence':
+                    var mat = new THREE.ShaderMaterial({
+                        uniforms: { time: { value: 0 }, magnitude: { value: 0.5 }, scale: { value: 5.0 }, speed: { value: 1.0 } },
+                        vertexShader: commonVertex,
+                        fragmentShader: `
+                            uniform float time; uniform float magnitude; uniform float scale; uniform float speed;
+                            varying vec2 vUv;
+                            ${snoise}
+                            void main() {
+                                vec2 uv = vUv * scale;
+                                float n = snoise(vec3(uv, time * speed));
+                                vec3 col = 0.5 + 0.5 * cos(time + vUv.xyx + vec3(0,2,4) + n * magnitude * 5.0);
+                                gl_FragColor = vec4(col, 1.0);
+                            }
+                        `,
+                        side: 2
+                    });
+                    mat.userData.shaderMeta = shaderMeta['Turbulence'];
+                    return mat;
+
+                default: return new THREE.MeshStandardMaterial({ color: 0xcccccc, side: 2 });
+            }
+        }
+
+        initCloths() {
+            const types = ['Silk (Red)', 'Denim', 'Latex (Black)', 'Gold Foil', 'Tron Grid', 'Polka Dot', 'Wireframe', 'Holographic', 'Thermal'];
+            let index = 0;
+            for(let x=-1; x<=1; x++) {
+                for(let z=-1; z<=1; z++) {
+                    let ix, iy, iz;
+                    if (this.params.layoutMode === 'XZ Grid') { ix = x * 250; iz = z * 250; iy = -250; } 
+                    else if (this.params.layoutMode === 'Y Stack') { ix = 0; iz = 0; iy = (index - 4) * this.params.spacing; }
+                    else if (this.params.layoutMode === 'X Stack') { ix = (index - 4) * this.params.spacing; iy = 50; iz = 0; }
+                    else if (this.params.layoutMode === 'Z Stack') { ix = 0; iy = 50; iz = (index - 4) * this.params.spacing; }
+                    else { ix = x * 250; iy = 50 + z * 250; iz = 0; }
+                    
+                    const offset = new THREE.Vector3(ix, iy, iz);
+                    const cloth = new Cloth(20, 20, 180, 220, offset);
+                    cloth.gridPos = { u: x, v: z, index: index };
+                    cloth.settings.materialName = types[index];
+                    
+                    const mat = this.getShader(types[index]);
+                    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 20, 20), mat);
+                    mesh.castShadow = true; mesh.receiveShadow = true;
+                    {
+                        const depthOpts = { depthPacking: THREE.RGBADepthPacking, alphaTest: 0.5 };
+                        if (mesh.material.map) depthOpts.map = mesh.material.map;
+                        mesh.customDepthMaterial = new THREE.MeshDepthMaterial(depthOpts);
+                    }
+                    
+                    const labelCanvas = document.createElement('canvas');
+                    const ctx = labelCanvas.getContext('2d');
+                    labelCanvas.width=64; labelCanvas.height=32;
+                    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,64,32);
+                    ctx.fillStyle='white'; ctx.font='bold 20px Arial'; ctx.textAlign='center'; ctx.fillText(`${index+1}`, 32, 22);
+                    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(labelCanvas) }));
+                    sprite.position.copy(offset).add(new THREE.Vector3(0, 140, 0));
+                    sprite.scale.set(30, 15, 1);
+                    
+                    cloth.sprite = sprite;
+                    this.cloths.push(cloth);
+                    this.clothMeshes.push(mesh);
+                    this.scene.add(sprite);
+                    this.scene.add(mesh);
+                    index++;
+                }
+            }
+        }
+
+        rebuildCloth(index) {
+            const oldCloth = this.cloths[index];
+            const oldMesh = this.clothMeshes[index];
+            const settings = oldCloth.settings;
+            const res = parseInt(document.getElementById('inp-polycount').value);
+
+            this.scene.remove(oldMesh);
+            this.scene.remove(oldCloth.sprite);
+            oldMesh.geometry.dispose();
+
+            const cloth = new Cloth(res, res, 180, 220, oldCloth.offset);
+            cloth.gridPos = oldCloth.gridPos;
+            cloth.settings = { ...settings };
+            cloth.isActive = oldCloth.isActive; // Preserve active state
+            
+            const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, res, res), oldMesh.material);
+            mesh.castShadow = true; mesh.receiveShadow = true;
+            {
+                const depthOpts = { depthPacking: THREE.RGBADepthPacking, alphaTest: 0.5 };
+                if (mesh.material.map) depthOpts.map = mesh.material.map;
+                mesh.customDepthMaterial = new THREE.MeshDepthMaterial(depthOpts);
+            }
+            mesh.visible = cloth.isActive; // Sync vis
+
+            cloth.sprite = oldCloth.sprite;
+            cloth.sprite.visible = cloth.isActive;
+            
+            this.cloths[index] = cloth;
+            this.clothMeshes[index] = mesh;
+            this.scene.add(cloth.sprite);
+            this.scene.add(mesh);
+        }
+
+        updateEnvironment() {
+            // Reflections always use the loaded HDRI if available
+            this.scene.environment = this.loadedHDRI;
+            
+            // Background switches based on toggle
+            if (this.loadedHDRI && this.params.showHDRI) {
+                this.scene.background = this.loadedHDRI;
+            } else {
+                this.scene.background = new THREE.Color(this.params.bgColor);
+            }
+        }
+
+        buildUI() {
+            const bind = (id, key, dispId) => {
+                document.getElementById(id).addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    this.params[key] = val;
+                    if(dispId) document.getElementById(dispId).innerText = val;
+                });
+            };
+
+            // Global
+            document.getElementById('pause-toggle').addEventListener('change', (e) => this.params.paused = !e.target.checked);
+            document.getElementById('gravity-toggle').addEventListener('change', (e) => this.params.gravityEnabled = e.target.checked);
+            
+            // Background Color Logic
+            document.getElementById('inp-bgcolor').addEventListener('input', (e) => {
+                this.params.bgColor = e.target.value;
+                this.updateEnvironment();
+            });
+
+            // HDRI BG Toggle
+            document.getElementById('hdri-bg-toggle').addEventListener('change', (e) => {
+                this.params.showHDRI = e.target.checked;
+                this.updateEnvironment();
+            });
+
+            // HDRI Loader
+            document.getElementById('inp-hdri').addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const url = URL.createObjectURL(file);
+                const isHDR = file.name.toLowerCase().endsWith('.hdr');
+                
+                const onLoad = (texture) => {
+                    texture.mapping = THREE.EquirectangularReflectionMapping;
+                    if (!isHDR) texture.colorSpace = THREE.SRGBColorSpace;
+                    this.loadedHDRI = texture;
+                    this.updateEnvironment();
+                };
+
+                if (isHDR) {
+                    new RGBELoader().load(url, onLoad);
+                } else {
+                    new THREE.TextureLoader().load(url, onLoad);
+                }
+            });
+
+            bind('inp-windX', 'windX');
+            bind('inp-windY', 'windY');
+            bind('inp-windZ', 'windZ');
+            bind('inp-windStrength', 'windStrength', 'val-windStrength');
+            bind('inp-windVariance', 'windVariance', 'val-windVariance');
+
+            // Keep joystick in sync when sliders change
+            document.getElementById('inp-windX').addEventListener('input', () => this.updateWindJoystickFromParams());
+            document.getElementById('inp-windZ').addEventListener('input', () => this.updateWindJoystickFromParams());
+            
+            // Lighting
+            const updateLight = () => {
+                this.dirLight.position.set(this.params.lightX, this.params.lightY, this.params.lightZ);
+                this.dirLight.intensity = this.params.intensityDir;
+                this.ambientLight.intensity = this.params.intensityAmb;
+            }
+            bind('inp-lightX', 'lightX'); document.getElementById('inp-lightX').addEventListener('input', updateLight);
+            bind('inp-lightY', 'lightY'); document.getElementById('inp-lightY').addEventListener('input', updateLight);
+            bind('inp-lightZ', 'lightZ'); document.getElementById('inp-lightZ').addEventListener('input', updateLight);
+            bind('inp-intDir', 'intensityDir'); document.getElementById('inp-intDir').addEventListener('input', updateLight);
+            bind('inp-intAmb', 'intensityAmb'); document.getElementById('inp-intAmb').addEventListener('input', updateLight);
+            document.getElementById('shadow-toggle').addEventListener('change', (e) => { this.dirLight.castShadow = e.target.checked; });
+
+            document.getElementById('inp-collider').addEventListener('change', (e) => {
+                const en = e.target.checked;
+                this.sphereData.enabled = en; this.collisionSphere.visible = en; this.dragControls.enabled = en;
+            });
+
+            bind('inp-spacing', 'spacing', 'val-spacing');
+            document.getElementById('inp-spacing').addEventListener('input', () => this.updateDistribution());
+            document.getElementById('inp-layout').addEventListener('change', (e) => { this.params.layoutMode = e.target.value; this.updateDistribution(); });
+
+            // Selection Logic
+            const grid = document.getElementById('cloth-grid');
+            for(let i=0; i<9; i++) {
+                const btn = document.createElement('div'); 
+                btn.id = `grid-item-${i}`;
+                btn.className = 'grid-item' + (i===4?' active':''); 
+                btn.innerText = i+1;
+                btn.onclick = (e) => {
+                    if (e.shiftKey) this.toggleSelection(i);
+                    else this.selectCloth(i);
+                }; 
+                grid.appendChild(btn);
+            }
+            document.getElementById('btn-select-all').addEventListener('click', () => this.selectAll());
+
+            // Active Toggle Listener
+            document.getElementById('inp-item-active').addEventListener('change', (e) => {
+                const active = e.target.checked;
+                this.selectedIndices.forEach(idx => {
+                    this.cloths[idx].isActive = active;
+                    this.clothMeshes[idx].visible = active;
+                    this.cloths[idx].sprite.visible = active;
+                    // Update Grid Visual
+                    const gridBtn = document.getElementById(`grid-item-${idx}`);
+                    if(active) gridBtn.classList.remove('disabled');
+                    else gridBtn.classList.add('disabled');
+                });
+            });
+
+            // Per-Item Listeners
+            const bindItem = (id, prop, dispId, rebuild=false) => {
+                document.getElementById(id).addEventListener('input', (e) => {
+                    const val = (prop === 'pins' || prop === 'materialName') ? e.target.value : parseFloat(e.target.value);
+                    if (dispId) document.getElementById(dispId).innerText = val;
+                    
+                    this.selectedIndices.forEach(index => {
+                        const cloth = this.cloths[index];
+                        if (prop === 'materialName') {
+                            cloth.settings.materialName = val;
+                            this.clothMeshes[index].material = this.getShader(val);
+                            // Refresh UI for dynamic shaders
+                            if (this.selectedIndices.has(this.params.activeClothIndex)) this.updateSelectionUI();
+                        } else if (rebuild) {
+                            this.rebuildCloth(index); 
+                        } else {
+                            cloth.settings[prop] = val;
+                            if (prop === 'pins') cloth.pinNodes();
+                        }
+                    });
+                });
+            };
+
+            bindItem('inp-material', 'materialName');
+            bindItem('inp-shape', 'pins');
+            bindItem('inp-polycount', 'polycount', 'val-polycount', true);
+            bindItem('inp-iter', 'iterations', 'val-iter');
+            bindItem('inp-damping', 'damping', 'val-damping');
+            bindItem('inp-turb', 'turbulence', 'val-turb');
+            bindItem('inp-wave', 'waveHeight', 'val-wave');
+            bindItem('inp-gravity', 'gravity', 'val-gravity');
+            document.getElementById('btn-reset').addEventListener('click', () => this.resetActiveCloth());
+            
+            // Sync initial state
+            this.updateSelectionUI();
+            this.initWindJoystick();
+        }
+
+        initWindJoystick() {
+            const box = document.getElementById('wind-joystick');
+            const knob = document.getElementById('wind-knob');
+            if (!box || !knob) return;
+
+            const state = { dragging: false };
+
+            const updateFromEvent = (clientX, clientY) => {
+                const rect = box.getBoundingClientRect();
+                let x = (clientX - rect.left) / rect.width;
+                let y = (clientY - rect.top) / rect.height;
+                x = Math.min(Math.max(x, 0), 1);
+                y = Math.min(Math.max(y, 0), 1);
+
+                const normX = (x - 0.5) * 2; // -1..1
+                const normZ = (y - 0.5) * 2; // -1..1 (forward/back)
+
+                const max = 200; // matches slider range
+                const windX = normX * max;
+                const windZ = normZ * max;
+
+                this.params.windX = windX;
+                this.params.windZ = windZ;
+
+                const sx = document.getElementById('inp-windX');
+                const sz = document.getElementById('inp-windZ');
+                if (sx) sx.value = windX.toFixed(0);
+                if (sz) sz.value = windZ.toFixed(0);
+
+                this.updateWindJoystickFromParams();
+            };
+
+            const onPointerDown = (e) => {
+                state.dragging = true;
+                updateFromEvent(e.clientX, e.clientY);
+            };
+
+            const onPointerMove = (e) => {
+                if (!state.dragging) return;
+                updateFromEvent(e.clientX, e.clientY);
+            };
+
+            const onPointerUp = () => {
+                state.dragging = false;
+            };
+
+            box.addEventListener('pointerdown', onPointerDown);
+            window.addEventListener('pointermove', onPointerMove);
+            window.addEventListener('pointerup', onPointerUp);
+
+            this.updateWindJoystickFromParams();
+        }
+
+        updateWindJoystickFromParams() {
+            const box = document.getElementById('wind-joystick');
+            const knob = document.getElementById('wind-knob');
+            if (!box || !knob) return;
+
+            const max = 200;
+            const nx = THREE.MathUtils.clamp(this.params.windX / max, -1, 1);
+            const nz = THREE.MathUtils.clamp(this.params.windZ / max, -1, 1);
+
+            const px = (nx * 0.5 + 0.5) * 100; // percent
+            const py = (nz * 0.5 + 0.5) * 100;
+
+            knob.style.left = px + '%';
+            knob.style.top = py + '%';
+        }
+
+        selectCloth(index) {
+            this.selectedIndices.clear();
+            this.selectedIndices.add(index);
+            this.params.activeClothIndex = index; // Track primary for UI sync
+            this.updateSelectionUI();
+        }
+
+        selectAll() {
+            for(let i=0; i<9; i++) this.selectedIndices.add(i);
+            this.updateSelectionUI();
+        }
+
+        toggleSelection(index) {
+            if(this.selectedIndices.has(index)) {
+                if(this.selectedIndices.size > 1) this.selectedIndices.delete(index);
+            } else {
+                this.selectedIndices.add(index);
+                this.params.activeClothIndex = index;
+            }
+            this.updateSelectionUI();
+        }
+
+        updateSelectionUI() {
+            // Update Grid Highlights
+            for(let i=0; i<9; i++) {
+                const el = document.getElementById(`grid-item-${i}`);
+                const isActive = this.cloths[i].isActive;
+                
+                let classes = 'grid-item';
+                if (this.selectedIndices.has(i)) classes += ' active';
+                if (!isActive) classes += ' disabled';
+                
+                el.className = classes;
+            }
+            
+            const indices = Array.from(this.selectedIndices).sort((a,b)=>a-b);
+            document.getElementById('selected-id').innerText = indices.length > 1 ? `(${indices.length})` : '#' + (indices[0]+1);
+
+            // Sync Inputs to Primary Selection
+            if (indices.length > 0) {
+                // Use params.activeClothIndex if it's in selection, otherwise first in list
+                const primaryIdx = this.selectedIndices.has(this.params.activeClothIndex) ? this.params.activeClothIndex : indices[0];
+                const first = this.cloths[primaryIdx];
+                const s = first.settings;
+                
+                document.getElementById('inp-item-active').checked = first.isActive;
+                document.getElementById('inp-shape').value = s.pins;
+                document.getElementById('inp-material').value = s.materialName;
+                document.getElementById('inp-polycount').value = first.w; 
+                document.getElementById('val-polycount').innerText = first.w;
+                document.getElementById('inp-iter').value = s.iterations; 
+                document.getElementById('val-iter').innerText = s.iterations;
+                document.getElementById('inp-damping').value = s.damping; 
+                document.getElementById('val-damping').innerText = s.damping;
+                document.getElementById('inp-turb').value = s.turbulence; 
+                document.getElementById('val-turb').innerText = s.turbulence;
+                document.getElementById('inp-wave').value = s.waveHeight; 
+                document.getElementById('val-wave').innerText = s.waveHeight;
+                document.getElementById('inp-gravity').value = s.gravity; 
+                document.getElementById('val-gravity').innerText = s.gravity;
+
+                // --- Generate Dynamic Shader Controls ---
+                const container = document.getElementById('dynamic-shader-params');
+                container.innerHTML = ''; // Clear old controls
+                
+                const mesh = this.clothMeshes[primaryIdx];
+                if (mesh.material.userData.shaderMeta) {
+                    const meta = mesh.material.userData.shaderMeta;
+                    meta.controls.forEach(ctrl => {
+                        const group = document.createElement('div');
+                        group.className = 'control-group';
+                        group.innerHTML = `
+                            <div class="control-row"><label>${ctrl.label}</label><span class="value-display">${ctrl.val}</span></div>
+                            <input type="range" min="${ctrl.min}" max="${ctrl.max}" step="0.1" value="${ctrl.val}">
+                        `;
+                        const input = group.querySelector('input');
+                        const display = group.querySelector('.value-display');
+                        
+                        input.addEventListener('input', (e) => {
+                            const v = parseFloat(e.target.value);
+                            display.innerText = v;
+                            // Update this uniform for ALL selected cloths sharing this shader type
+                            this.selectedIndices.forEach(idx => {
+                                const m = this.clothMeshes[idx];
+                                if (m.material.uniforms && m.material.uniforms[ctrl.u]) {
+                                    m.material.uniforms[ctrl.u].value = v;
+                                }
+                            });
+                        });
+                        container.appendChild(group);
+                    });
+                }
+            }
+        }
+
+        updateDistribution() {
+            this.cloths.forEach(c => {
+                let x,y,z;
+                if(this.params.layoutMode === 'XZ Grid') { x=c.gridPos.u*this.params.spacing; z=c.gridPos.v*this.params.spacing; y=-250; }
+                else if(this.params.layoutMode === 'Y Stack') { x=0; z=0; y=(c.gridPos.index - 4) * this.params.spacing; }
+                else if(this.params.layoutMode === 'X Stack') { x=(c.gridPos.index - 4) * this.params.spacing; y=50; z=0; }
+                else if(this.params.layoutMode === 'Z Stack') { x=0; y=50; z=(c.gridPos.index - 4) * this.params.spacing; }
+                else { x=c.gridPos.u*this.params.spacing; y=50+c.gridPos.v*this.params.spacing; z=0; }
+                const delta = new THREE.Vector3(x,y,z).sub(c.offset);
+                c.particles.forEach(p => { p.position.add(delta); p.previous.add(delta); p.original.add(delta); });
+                c.sprite.position.add(delta);
+                c.offset.set(x,y,z);
+            });
+        }
+
+        resetActiveCloth() {
+            this.selectedIndices.forEach(index => {
+                const c = this.cloths[index];
+                c.particles.forEach((p,i) => {
+                    const u = i%(c.w+1); const v = Math.floor(i/(c.w+1));
+                    const x = c.offset.x + u*(180/c.w)-90;
+                    if(this.params.layoutMode==='XZ Grid') p.position.set(x, c.offset.y+110, c.offset.z+v*(220/c.h)-110+(Math.random()*2));
+                    else p.position.set(x, c.offset.y-v*(220/c.h), c.offset.z+(Math.random()*2));
+                    p.previous.copy(p.position); p.a.set(0,0,0);
+                });
+                c.pinNodes();
+            });
+        }
+
+        setCamera(view) {
+            this.controls.reset();
+            if(view==='persp') this.camera.position.set(0,200,800);
+            else if(view==='top') this.camera.position.set(0,1000,0);
+            else if(view==='side') this.camera.position.set(1000,0,0);
+            else if(view==='iso') this.camera.position.set(500,500,500);
+            this.camera.lookAt(0,0,0);
+        }
+
+        onResize() {
+            this.camera.aspect = window.innerWidth/window.innerHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        animate() {
+            requestAnimationFrame(this.animate.bind(this));
+            if(!this.params.paused) {
+                const wind = new THREE.Vector3(this.params.windX, this.params.windY, this.params.windZ)
+                    .multiplyScalar(this.params.windStrength);
+                const variance = this.params.windVariance;
+                this.cloths.forEach(c => c.update(0.018, wind, this.sphereData, this.params.gravityEnabled, variance));
+                this.cloths.forEach((c, i) => {
+                    if (!c.isActive) return;
+                    const pos = this.clothMeshes[i].geometry.attributes.position.array;
+                    for(let j=0; j<c.particles.length; j++) {
+                        pos[j*3] = c.particles[j].position.x;
+                        pos[j*3+1] = c.particles[j].position.y;
+                        pos[j*3+2] = c.particles[j].position.z;
+                    }
+                    this.clothMeshes[i].geometry.attributes.position.needsUpdate = true;
+                    this.clothMeshes[i].geometry.computeVertexNormals();
+                    if(this.clothMeshes[i].material.uniforms) this.clothMeshes[i].material.uniforms.time.value = this.clock.getElapsedTime();
+                });
+            }
+            this.controls.update();
+            this.renderer.render(this.scene, this.camera);
+        }
+    }
+
+    window.onload = () => { try { new ClothApp(); } catch(e) { console.error(e); } };
+</script>
+</body>
+</html>
