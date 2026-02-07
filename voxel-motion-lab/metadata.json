@@ -1,0 +1,5 @@
+{
+  "name": "Voxel Motion Lab",
+  "description": "An interactive gallery demonstrating core animation principles using 3D isometric voxels within a Dark Neumorphic interface.",
+  "requestFramePermissions": []
+}
