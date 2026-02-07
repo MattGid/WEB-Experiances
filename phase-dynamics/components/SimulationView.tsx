@@ -68,7 +68,6 @@ const SimulationView: React.FC<SimulationViewProps> = ({ config, isSimulating, a
       const isBeam = ['photon', 'electron', 'neutron'].includes(currTool);
       const trailAlpha = isBeam ? 0.08 : Math.max(0.1, 1.3 - currConfig.trailIntensity);
       
-      // Use dynamic background color for trail fade
       tCtx!.fillStyle = hexToRgba(currConfig.backgroundColor, trailAlpha);
       tCtx!.fillRect(0, 0, GRID_WIDTH * CANVAS_SCALE, GRID_HEIGHT * CANVAS_SCALE);
       
@@ -127,7 +126,6 @@ const SimulationView: React.FC<SimulationViewProps> = ({ config, isSimulating, a
         }
       }
       
-      // Use dynamic background color for main clear
       ctx.fillStyle = currConfig.backgroundColor;
       ctx.fillRect(0, 0, GRID_WIDTH * CANVAS_SCALE, GRID_HEIGHT * CANVAS_SCALE);
       ctx.drawImage(trailCanvasRef.current!, 0, 0);
@@ -146,7 +144,10 @@ const SimulationView: React.FC<SimulationViewProps> = ({ config, isSimulating, a
 
   const getCoords = (e: React.PointerEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect(); if (!rect) return {x:0, y:0};
-    return { x: (e.clientX - rect.left) / (rect.width / GRID_WIDTH), y: (e.clientY - rect.top) / (rect.height / GRID_HEIGHT) };
+    return { 
+      x: (e.clientX - rect.left) / (rect.width / GRID_WIDTH), 
+      y: (e.clientY - rect.top) / (rect.height / GRID_HEIGHT) 
+    };
   };
 
   const applyTool = (x: number, y: number) => {
@@ -215,7 +216,6 @@ const SimulationView: React.FC<SimulationViewProps> = ({ config, isSimulating, a
     const coords = getCoords(e);
     const newPointers = new Map(activePointers); newPointers.set(e.pointerId, coords);
     setActivePointers(newPointers); applyTool(coords.x, coords.y);
-    // sounds.startDraw() removed
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -223,20 +223,29 @@ const SimulationView: React.FC<SimulationViewProps> = ({ config, isSimulating, a
     const coords = getCoords(e);
     const newPointers = new Map(activePointers); newPointers.set(e.pointerId, coords);
     setActivePointers(newPointers); applyTool(coords.x, coords.y);
-    // sounds.updateDraw(coords.y) removed
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const newPointers = new Map(activePointers); newPointers.delete(e.pointerId);
     setActivePointers(newPointers); engineRef.current.setMagnet(0, null);
-    // sounds.stopDraw() removed
   };
 
   return (
-    <div className="w-full h-full flex items-center justify-center p-4">
-      <div className="relative border border-white/10 rounded shadow-2xl overflow-hidden aspect-[450/320] w-full max-w-[800px]" style={{ backgroundColor: config.backgroundColor }}>
-        <canvas ref={canvasRef} width={GRID_WIDTH * CANVAS_SCALE} height={GRID_HEIGHT * CANVAS_SCALE} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp} className="w-full h-full object-contain cursor-crosshair" />
-        <div className="absolute inset-0 pointer-events-none opacity-40 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.2)_100%)]"></div>
+    <div className="w-full h-full flex items-center justify-center overflow-hidden">
+      <div 
+        className="relative aspect-[450/320] w-full h-auto flex items-center justify-center" 
+        style={{ backgroundColor: config.backgroundColor }}
+      >
+        <canvas 
+          ref={canvasRef} 
+          width={GRID_WIDTH * CANVAS_SCALE} 
+          height={GRID_HEIGHT * CANVAS_SCALE} 
+          onPointerDown={handlePointerDown} 
+          onPointerMove={handlePointerMove} 
+          onPointerUp={handlePointerUp} 
+          onPointerLeave={handlePointerUp} 
+          className="w-full h-full cursor-crosshair block" 
+        />
       </div>
     </div>
   );

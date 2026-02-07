@@ -60,7 +60,6 @@ const App: React.FC = () => {
   };
 
   const handleToolChange = (id: string) => {
-    // Sound removed from tool selection
     setActiveTool(id);
   };
 
@@ -70,7 +69,6 @@ const App: React.FC = () => {
   };
 
   const handleSheetChange = (sheet: any) => {
-    // Sound removed from sheet navigation
     setActiveSheet(sheet);
   };
 
@@ -182,7 +180,6 @@ const App: React.FC = () => {
               <div className="flex justify-between items-center"><label className="label-caps text-black/90">Brush Radius</label><span className="mono font-bold text-black">{config.brushSize}px</span></div>
               <input type="range" className="w-full" min="4" max="50" value={config.brushSize} onChange={e => {
                 setConfig({...config, brushSize: parseInt(e.target.value)});
-                // Sound removed from radius adjustment
               }} />
             </div>
             <div className="space-y-2">
@@ -196,7 +193,6 @@ const App: React.FC = () => {
                     value={config.backgroundColor} 
                     onChange={e => {
                       setConfig({...config, backgroundColor: e.target.value});
-                      // Sound removed from color picking
                     }} 
                   />
                 </div>
@@ -226,10 +222,10 @@ const App: React.FC = () => {
         </button>
       </header>
 
-      {/* MAIN VIEWPORT */}
-      <main className="flex-1 flex flex-col min-w-0 md:p-4 md:gap-4 h-full overflow-hidden">
-        {/* DESKTOP TOP BAR */}
-        <div className="hidden md:flex h-16 rams-panel rounded items-center px-6 justify-between shrink-0 border-black/20 shadow-sm">
+      {/* MAIN VIEWPORT - Removed md:p-4 md:gap-4 for edge-to-edge layout */}
+      <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        {/* DESKTOP TOP BAR - Kept original padding inside the bar */}
+        <div className="hidden md:flex h-16 rams-panel rounded-none items-center px-6 justify-between shrink-0 border-black/20 shadow-sm">
            <div className="flex items-center gap-10">
               <div className="flex flex-col">
                  <label className="label-caps mb-1 text-black font-black">Analysis Deck</label>
@@ -243,7 +239,7 @@ const App: React.FC = () => {
         </div>
 
         {/* SIMULATION CANVAS AREA */}
-        <div className="flex-1 md:rams-panel md:rounded relative overflow-hidden flex flex-col border-black/20 md:shadow-lg" style={{ backgroundColor: config.backgroundColor }}>
+        <div className="flex-1 relative overflow-hidden flex flex-col" style={{ backgroundColor: config.backgroundColor }}>
            {/* Telemetry Display */}
            {activeTelemetry && (
              <div className="absolute top-4 right-4 md:top-8 md:right-8 z-20 w-48 md:w-60 pointer-events-none animate-in fade-in slide-in-from-top-4">
@@ -257,7 +253,7 @@ const App: React.FC = () => {
              </div>
            )}
 
-           <div className="flex-1 relative">
+           <div className="flex-1 relative h-full w-full">
              <SimulationView 
                key={`${resetKey}-${activeExperiment}`} 
                config={config} 
@@ -352,7 +348,6 @@ const App: React.FC = () => {
                 value={config.backgroundColor} 
                 onChange={e => {
                   setConfig({...config, backgroundColor: e.target.value});
-                  // Sound removed from color picking
                 }} 
               />
             </div>
