@@ -1,0 +1,5 @@
+{
+  "name": "SIMULATOR: Phase Dynamics",
+  "description": "A high-performance pixel-based simulation of thermodynamic phase transitions and particle physics.",
+  "requestFramePermissions": []
+}
